@@ -1,4 +1,5 @@
 #pragma once
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -9,18 +10,17 @@
 
 struct Context_;
 
-typedef Context_ *Context;
-
-struct Context_ {
+struct Context {
     std::string name;
-    std::vector<std::string> variables;
-    Context parent, root;
+    std::vector<std::string> variables, functions;
+    std::shared_ptr<Context> parent, root;
 };
 
 void compileLine(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string line,
     std::function<std::unique_ptr<std::string>()> getLine,
     std::vector<std::string>& compiledCode,
-    std::vector<std::string>& definitions
+    std::vector<std::string>& definitions,
+    std::ifstream& file
 );

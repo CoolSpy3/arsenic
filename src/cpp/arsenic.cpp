@@ -7,7 +7,7 @@
 std::string remove_comments(std::string str) {
     int lastIdx = str.length();
     bool quotes = false;
-    for(int i = 0; i < str.length(); i++) {
+    for(std::size_t i = 0; i < str.length(); i++) {
         if(str[i] == '"' || str[i] == '\'') {
             quotes = !quotes;
         }
@@ -24,7 +24,7 @@ std::string remove_comments(std::string str) {
 }
 
 void compileFile(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string fileName,
     std::vector<std::string> &compiledCode,
     std::vector<std::string> &definitions)
@@ -34,12 +34,12 @@ void compileFile(
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
         return std::make_unique<std::string>(std::getline(file, line) ? remove_comments(line) : NULL);
     };
-    while (std::getline(file, line)) compileLine(ctx, line, getLine, compiledCode, definitions);
+    while (std::getline(file, line)) compileLine(ctx, line, getLine, compiledCode, definitions, file);
     file.close();
 }
 
 void recursivelyCompileDirectory(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string dir,
     std::vector<std::string> &compiledCode,
     std::vector<std::string> &definitions
@@ -67,11 +67,11 @@ int main(int argc, char **argv)
     std::string dir = argv[1];
     std::string out = argv[2];
 
-    Context rootCtx = new Context_{"arsenic_", std::vector<std::string>(), nullptr, nullptr};
-    rootCtx->root = rootCtx;
+    Context rootCtx = Context{"arsenic_", std::vector<std::string>(), std::vector<std::string>(), nullptr, nullptr};
+    rootCtx.root = std::make_shared<Context>(rootCtx);
 
     std::vector<std::string> compiledCode, definitions;
-    recursivelyCompileDirectory(rootCtx, dir, compiledCode, definitions);
+    recursivelyCompileDirectory(rootCtx.root, dir, compiledCode, definitions);
     compiledCode.insert(compiledCode.begin(), definitions.begin(), definitions.end());
 
     std::ofstream os(out);
@@ -89,8 +89,6 @@ int main(int argc, char **argv)
     os << "popad" << std::endl;
 
     os.close();
-
-    delete rootCtx;
 
     return 0;
 }

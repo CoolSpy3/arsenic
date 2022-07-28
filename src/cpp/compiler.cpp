@@ -1,7 +1,7 @@
 #include "compiler.h"
 
 void resolve_argument_a(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string var,
     std::string reg,
     std::vector<std::string>& compiledCode,
@@ -25,14 +25,14 @@ void resolve_argument_a(
 }
 
 void resolve_argument(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string var,
     std::string reg,
     std::vector<std::string> &compiledCode
 );
 
 void resolve_argument_i(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string var,
     std::string reg,
     std::vector<std::string> &compiledCode,
@@ -65,7 +65,7 @@ void resolve_argument_i(
 }
 
 void resolve_argument_p(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string var,
     std::string reg,
     std::vector<std::string> &compiledCode,
@@ -144,7 +144,7 @@ void resolve_argument_p(
 }
 
 bool resolve_argument_o(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string var,
     std::string reg,
     std::string operation,
@@ -178,7 +178,7 @@ bool resolve_argument_o(
 }
 
 void resolve_argument(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string var,
     std::string reg,
     std::vector<std::string> &compiledCode
@@ -359,12 +359,95 @@ int calculateIndentation(std::string line)
     return indentation;
 }
 
+void writeFunctionExit(std::vector<std::string> &compiledCode)
+{
+    compiledCode.push_back("push eax");
+    compiledCode.push_back("mov eax, ebp");
+    compiledCode.push_back("call free");
+    compiledCode.push_back("pop eax");
+    compiledCode.push_back("pop ebp");
+    compiledCode.push_back("ret");
+}
+
+std::vector<std::string> preprocessFunction(
+    std::shared_ptr<Context> ctx,
+    int indentation,
+    std::function<std::unique_ptr<std::string>()> getLine,
+    std::ifstream &file
+) {
+    std::vector<std::string> variables;
+    variables.push_back(".spr");
+    variables.push_back(".arg");
+    variables.push_back(".ret");
+    int posBkp = file.tellg();
+
+    for(;;) {
+        std::unique_ptr<std::string> linePtr = getLine();
+        if(!linePtr) break;
+        std::string line = *linePtr;
+        trim(line);
+        if(line.empty()) continue;
+        if(indentation <= calculateIndentation(line)) break;
+        if(std::regex_match(line, std::regex("([^\\s]+)\\s*:"))) {
+            int innerIndentation = calculateIndentation(line);
+            int posBkp2 = file.tellg();
+            while(linePtr && !linePtr->empty() && calculateIndentation(*linePtr) > innerIndentation) {
+                posBkp2 = file.tellg();
+                linePtr = getLine();
+            }
+            file.seekg(posBkp2);
+            continue;
+        }
+        std::smatch varMatch;
+        if(std::regex_match(line, varMatch, std::regex("([^\\s]+)\\s*(=|<|>)\\s*.+"))) {
+            std::string var = varMatch[1];
+            if(var[0] <= '9') continue;
+            if(var == "return") continue;
+            Context superCtx = *ctx;
+            while(superCtx.parent) {
+                if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
+                if(superCtx.parent == nullptr) {
+                    variables.push_back(var);
+                    break;
+                }
+                superCtx = *superCtx.parent;
+            }
+        } else if (std::regex_match(line, varMatch, std::regex("\\[[^\\s]+\\]"))) {
+            std::string var = varMatch[1];
+            if(var[0] <= '9') continue;
+            if(var == "return") continue;
+            Context superCtx = *ctx;
+            while(superCtx.parent) {
+                if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
+                if(superCtx.parent == nullptr) {
+                    variables.push_back(var);
+                    break;
+                }
+                superCtx = *superCtx.parent;
+            }
+        }
+    }
+
+    file.seekg(posBkp);
+    return variables;
+}
+
+std::string allocateLabel(
+    std::string requestedName,
+    std::shared_ptr<Context> ctx
+) {
+    int i = 0;
+    while(std::count(ctx->functions.begin(), ctx->functions.end(), requestedName + std::to_string(i))) i++;
+    return requestedName + std::to_string(i);
+}
+
 void compileLine(
-    Context ctx,
+    std::shared_ptr<Context> ctx,
     std::string line,
     std::function<std::unique_ptr<std::string>()> getLine,
     std::vector<std::string>& compiledCode,
-    std::vector<std::string>& definitions
+    std::vector<std::string>& definitions,
+    std::ifstream &file
 ) {
     int indentation = calculateIndentation(line);
     trim(line);
@@ -388,7 +471,7 @@ void compileLine(
             trim(line);
             compiledCode.push_back(line);
         }
-        compileLine(ctx, line, getLine, compiledCode, definitions);
+        compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
     std::smatch match;
@@ -427,5 +510,90 @@ void compileLine(
 
         compiledCode.push_back("pop ebx");
         compiledCode.push_back("pop eax");
+    }
+
+    if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*:"))) {
+        std::string functionLabel = string_format("{}_f{}", ctx->name, match[1]);
+
+        std::vector<std::string> functionVars = preprocessFunction(ctx, indentation, getLine, file);
+
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), ctx, ctx->root});
+
+        compiledCode.push_back(string_format("jmp {}_e", functionLabel));
+        compiledCode.push_back(string_format("{}:", functionLabel));
+        compiledCode.push_back("push ebp");
+        compiledCode.push_back("push eax");
+        compiledCode.push_back(string_format("mov eax, {}", 4 * functionVars.size()));
+        compiledCode.push_back("call malloc");
+        compiledCode.push_back("mov ebp, eax");
+        compiledCode.push_back("pop eax");
+        for(;;) {
+            std::unique_ptr<std::string> linePtr = getLine();
+            if(!linePtr) break;
+            line = *linePtr.get();
+            if(trim_copy(line).empty()) continue;
+            if(indentation <= calculateIndentation(line)) break;
+            compileLine(nCtx, line, getLine, compiledCode, definitions, file);
+        }
+        compiledCode.push_back(string_format("{}.end:", functionLabel));
+        compileLine(ctx, line, getLine, compiledCode, definitions, file);
+    }
+
+    if(std::regex_match(line, match, std::regex("delete\\s+([^\\s]+)"))) {
+        compiledCode.push_back("push eax");
+        resolve_argument_i(ctx, match[1], "eax", compiledCode);
+        compiledCode.push_back("call free");
+        compiledCode.push_back("pop eax");
+    }
+
+    if(std::regex_match(line, match, std::regex("if\\s+([^\\s].+)\\s*:"))) {
+        std::string ifLabel = allocateLabel(string_format("{}_cif", ctx->name), ctx);
+        compiledCode.push_back(string_format("{}:", ifLabel));
+        compiledCode.push_back("push eax");
+        resolve_argument(ctx, match[1], "eax", compiledCode);
+        compiledCode.push_back("cmp eax, 0");
+        compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("jz {}", string_format("{}_cel", ifLabel)));
+        for(;;) {
+            std::unique_ptr<std::string> linePtr = getLine();
+            if(!linePtr) break;
+            line = *linePtr.get();
+            if(trim_copy(line).empty()) continue;
+            if(indentation <= calculateIndentation(line)) break;
+            compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        }
+        if(std::regex_match(line, std::regex("else\\s*:"))) {
+            compiledCode.push_back(string_format("jmp {}_e:", ifLabel));
+            compiledCode.push_back(string_format("{}_cel:", ifLabel));
+            for(;;) {
+                std::unique_ptr<std::string> linePtr = getLine();
+                if(!linePtr) break;
+                line = *linePtr.get();
+                if(trim_copy(line).empty()) continue;
+                if(indentation <= calculateIndentation(line)) break;
+                compileLine(ctx, line, getLine, compiledCode, definitions, file);
+            }
+        } else compiledCode.push_back(string_format("{}_cel:", ifLabel));
+        compiledCode.push_back(string_format("{}_e:", ifLabel));
+    }
+
+    if(std::regex_match(line, match, std::regex("while\\s+([^\\s].+)\\s*:"))) {
+        std::string whileLabel = allocateLabel(string_format("{}_cwhile", ctx->name), ctx);
+        compiledCode.push_back(string_format("{}:", whileLabel));
+        compiledCode.push_back("push eax");
+        resolve_argument(ctx, match[1], "eax", compiledCode);
+        compiledCode.push_back("cmp eax, 0");
+        compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("jz {}", string_format("{}_e", whileLabel)));
+        for(;;) {
+            std::unique_ptr<std::string> linePtr = getLine();
+            if(!linePtr) break;
+            line = *linePtr.get();
+            if(trim_copy(line).empty()) continue;
+            if(indentation <= calculateIndentation(line)) break;
+            compileLine(ctx, line, getLine, compiledCode, definitions, file);
+            compiledCode.push_back(string_format("jmp {}", whileLabel));
+        }
+        compiledCode.push_back(string_format("{}_e:", whileLabel));
     }
 }
