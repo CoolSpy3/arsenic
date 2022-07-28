@@ -4,6 +4,25 @@
 #include <iostream>
 #include <regex>
 
+std::string remove_comments(std::string str) {
+    int lastIdx = str.length();
+    bool quotes = false;
+    for(int i = 0; i < str.length(); i++) {
+        if(str[i] == '"' || str[i] == '\'') {
+            quotes = !quotes;
+        }
+        if(quotes && str[i] == '\\') {
+            i++;
+            continue;
+        }
+        if(';' == str[i] && !quotes) {
+            lastIdx = i;
+            break;
+        }
+    }
+    return str.substr(0, lastIdx);
+}
+
 void compileFile(
     Context ctx,
     std::string fileName,
@@ -13,7 +32,7 @@ void compileFile(
     std::ifstream file(fileName);
     std::string line;
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
-        return std::make_unique<std::string>(std::getline(file, line) ? line : NULL);
+        return std::make_unique<std::string>(std::getline(file, line) ? remove_comments(line) : NULL);
     };
     while (std::getline(file, line)) compileLine(ctx, line, getLine, compiledCode, definitions);
     file.close();
