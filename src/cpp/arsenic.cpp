@@ -27,8 +27,8 @@ void compileFile(
     std::shared_ptr<Context> ctx,
     std::string fileName,
     std::vector<std::string> &compiledCode,
-    std::vector<std::string> &definitions)
-{
+    std::vector<std::string> &definitions
+) {
     std::ifstream file(fileName);
     std::string line;
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
@@ -45,16 +45,34 @@ void recursivelyCompileDirectory(
     std::vector<std::string> &definitions
 ) {
     for (auto &entry : std::filesystem::directory_iterator(dir))
-    {
-        if (entry.is_directory())
-        {
-            recursivelyCompileDirectory(ctx, entry.path().string(), compiledCode, definitions);
-        }
-        else
-        {
-            compileFile(ctx, entry.path().string(), compiledCode, definitions);
-        }
-    }
+        if (entry.is_directory()) recursivelyCompileDirectory(ctx, entry.path().string(), compiledCode, definitions);
+        else compileFile(ctx, entry.path().string(), compiledCode, definitions);
+}
+
+void preprocessFile(
+    std::shared_ptr<Context> ctx,
+    std::string fileName,
+    std::vector<std::string> &variables
+) {
+    std::ifstream file(fileName);
+    std::string line;
+    std::function<std::unique_ptr<std::string>()> getLine = [&]() {
+        return std::make_unique<std::string>(std::getline(file, line) ? remove_comments(line) : NULL);
+    };
+    std::vector<std::string> nVariables;
+    while (std::getline(file, line)) preprocessFunction(ctx, 0, getLine, file);
+    variables.insert(variables.end(), nVariables.begin(), nVariables.end());
+    file.close();
+}
+
+void recursivelyPreprocessDirectory(
+    std::shared_ptr<Context> ctx,
+    std::string dir,
+    std::vector<std::string> &variables
+) {
+    for (auto &entry : std::filesystem::directory_iterator(dir))
+        if (entry.is_directory()) recursivelyPreprocessDirectory(ctx, entry.path().string(), variables);
+        else preprocessFile(ctx, entry.path().string(), variables);
 }
 
 int main(int argc, char **argv)
@@ -69,6 +87,8 @@ int main(int argc, char **argv)
 
     Context rootCtx = Context{"arsenic_", std::vector<std::string>(), std::vector<std::string>(), nullptr, nullptr};
     rootCtx.root = std::make_shared<Context>(rootCtx);
+
+    recursivelyPreprocessDirectory(rootCtx.root, dir, rootCtx.variables);
 
     std::vector<std::string> compiledCode, definitions;
     recursivelyCompileDirectory(rootCtx.root, dir, compiledCode, definitions);

@@ -24,13 +24,6 @@ void resolve_argument_a(
     }
 }
 
-void resolve_argument(
-    std::shared_ptr<Context> ctx,
-    std::string var,
-    std::string reg,
-    std::vector<std::string> &compiledCode
-);
-
 void resolve_argument_i(
     std::shared_ptr<Context> ctx,
     std::string var,
