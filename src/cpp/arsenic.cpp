@@ -32,7 +32,7 @@ void compileFile(
     std::ifstream file(fileName);
     std::string line;
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
-        return std::make_unique<std::string>(std::getline(file, line) ? remove_comments(line) : NULL);
+        return std::unique_ptr<std::string>(std::getline(file, line) ? new std::string(remove_comments(line)) : nullptr);
     };
     while (std::getline(file, line)) compileLine(ctx, line, getLine, compiledCode, definitions, file);
     file.close();
@@ -57,7 +57,7 @@ void preprocessFile(
     std::ifstream file(fileName);
     std::string line;
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
-        return std::make_unique<std::string>(std::getline(file, line) ? remove_comments(line) : NULL);
+        return std::unique_ptr<std::string>(std::getline(file, line) ? new std::string(remove_comments(line)) : nullptr);
     };
     std::vector<std::string> nVariables;
     while (std::getline(file, line)) preprocessFunction(ctx, 0, getLine, file);
@@ -101,7 +101,8 @@ int main(int argc, char **argv)
 
     for (std::string line : compiledCode)
     {
-        if(std::regex_match(line, std::regex("mov (?<register>e?([a-d](l|h|x)|si|di)),\\s*\\k<register>"))) continue;
+        std::smatch nopMovMatch;
+        if(std::regex_match(line, nopMovMatch, std::regex("mov (e?([a-d](l|h|x)|si|di)),\\s*(e?([a-d](l|h|x)|si|di))")) && nopMovMatch[1] == nopMovMatch[2]) continue;
         os << line << std::endl;
     }
 

@@ -451,7 +451,7 @@ void compileLine(
             if(!linePtr) break;
             line = *linePtr.get();
             if(trim_copy(line).empty()) continue;
-            if(indentation <= calculateIndentation(line)) break;
+            if(indentation >= calculateIndentation(line)) break;
             std::smatch match;
             if(std::regex_search(line, match, std::regex("\\{(.*),\\s*(eax|ebx|ecx|edx)}"))) {
                 resolve_argument(ctx, match[1], match[2], compiledCode);
