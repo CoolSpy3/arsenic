@@ -1,5 +1,7 @@
 #include "compiler.h"
 
+#define CHECK_SPECIAL_VARS(var) var == "args" ? ".arg" : var == "return" ? ".ret" : var
+
 void resolve_argument_a(
     std::shared_ptr<Context> ctx,
     std::string var,
@@ -7,6 +9,7 @@ void resolve_argument_a(
     std::vector<std::string>& compiledCode,
     int numParents = 0
 ) {
+    var = CHECK_SPECIAL_VARS(var);
     std::vector<std::string>::iterator it = std::find(ctx->variables.begin(), ctx->variables.end(), var);
     if(it == ctx->variables.end()) {
         if(ctx->parent) {
@@ -19,7 +22,7 @@ void resolve_argument_a(
         if(reg != "eax") compiledCode.push_back("push eax");
         compiledCode.push_back("mov eax, [esp-4]");
         for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
-        compiledCode.push_back(string_format("add eax, {}", 4 * std::distance(ctx->variables.begin(), it)));
+        compiledCode.push_back(string_format("add eax, %d", 4 * std::distance(ctx->variables.begin(), it)));
         if(reg != "eax") compiledCode.push_back("pop eax");
     }
 }
@@ -33,13 +36,14 @@ void resolve_argument_i(
 ) {
     trim(var);
     if(('0' <= var[0] && var[0] <= '9') || var[0] == '\'') {
-        compiledCode.push_back(string_format("mov eax, {}", var));
+        compiledCode.push_back(string_format("mov eax, %s", var.c_str()));
         return;
     }
     if(var[0] == '(' || var[0] == '[') {
         resolve_argument(ctx, var.substr(1, var.size() - 2), reg, compiledCode);
         return;
     }
+    var = CHECK_SPECIAL_VARS(var);
     std::vector<std::string>::iterator it = std::find(ctx->variables.begin(), ctx->variables.end(), var);
     if(it == ctx->variables.end()) {
         if(ctx->parent) {
@@ -52,10 +56,12 @@ void resolve_argument_i(
         if(reg != "eax") compiledCode.push_back("push eax");
         compiledCode.push_back("mov eax, [ebp]");
         for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
-        compiledCode.push_back(string_format("mov eax, [eax+{}]", 4 * std::distance(ctx->variables.begin(), it)));
+        compiledCode.push_back(string_format("mov eax, [eax+%d]", 4 * std::distance(ctx->variables.begin(), it)));
         if(reg != "eax") compiledCode.push_back("pop eax");
     }
 }
+
+#undef CHECK_SPECIAL_VARS
 
 void resolve_argument_p(
     std::shared_ptr<Context> ctx,
@@ -70,17 +76,17 @@ void resolve_argument_p(
         if(reg != "eax") compiledCode.push_back("push eax");
         std::string elems = var.substr(1, var.size() - 2);
         int numElems = std::count(elems.begin(), elems.end(), ',') + 1;
-        compiledCode.push_back(string_format("mov eax, {}", 4 * numElems));
+        compiledCode.push_back(string_format("mov eax, %d ", 4 * numElems));
         compiledCode.push_back("call malloc");
         for(int i = 0; i < numElems; i++) {
             int elemLen = elems.find(',');
             std::string elem = elems.substr(0, elemLen);
             elems = elems.substr(elemLen + 1);
             resolve_argument(ctx, elem, "ebx", compiledCode);
-            compiledCode.push_back(string_format("mov [eax+{}], ebx", 4 * i));
+            compiledCode.push_back(string_format("mov [eax+%d], ebx", 4 * i));
         }
         if(reg != "eax") {
-            compiledCode.push_back(string_format("mov {}, eax", reg));
+            compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
             compiledCode.push_back("pop eax");
         }
         return;
@@ -88,18 +94,18 @@ void resolve_argument_p(
     if(var[0] == '"') {
         int len = var.size() - 2 + 1;
         int id = definitions.size();
-        std::string svar = string_format("arsenic_s{}", id);
-        definitions.push_back(string_format("{} {}, 0", svar, var));
+        std::string svar = string_format("arsenic_s%d", id);
+        definitions.push_back(string_format("%s db %s, 0", svar.c_str(), var.c_str()));
         compiledCode.push_back("push esi");
         compiledCode.push_back("push edi");
         compiledCode.push_back("push ecx");
         if(reg != "eax") compiledCode.push_back("push eax");
 
-        compiledCode.push_back(string_format("mov esi, {}", svar));
-        compiledCode.push_back(string_format("mov eax, {}", len));
+        compiledCode.push_back(string_format("mov esi, %s", svar.c_str()));
+        compiledCode.push_back(string_format("mov eax, %d", len));
         compiledCode.push_back("call malloc");
         compiledCode.push_back("mov edi, eax");
-        compiledCode.push_back(string_format("mov ecx, {}", len));
+        compiledCode.push_back(string_format("mov ecx, %d", len));
 
         compiledCode.push_back("rep movsb");
 
@@ -107,7 +113,7 @@ void resolve_argument_p(
         compiledCode.push_back("pop edi");
         compiledCode.push_back("pop esi");
 
-        compiledCode.push_back(string_format("mov {}, edi", reg));
+        compiledCode.push_back(string_format("mov %s, edi", reg.c_str()));
         if(reg == "eax") compiledCode.push_back("pop eax");
         return;
     }
@@ -117,7 +123,7 @@ void resolve_argument_p(
         if(reg != "eax") compiledCode.push_back("push eax");
         resolve_argument(ctx, emptyArrayMatch[1], "eax", compiledCode);
         compiledCode.push_back("call malloc");
-        compiledCode.push_back(string_format("mov {}, eax", reg));
+        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
         if(reg != "eax") compiledCode.push_back("pop eax");
         return;
     }
@@ -131,7 +137,7 @@ void resolve_argument_p(
     compiledCode.push_back("pop ebx");
 
     if(reg != "eax") {
-        compiledCode.push_back(string_format("mov {}, eax", reg));
+        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
         compiledCode.push_back("pop eax");
     }
 }
@@ -152,9 +158,9 @@ bool resolve_argument_o(
     }
     if(scanVar.rfind("++", 0) == 0 || scanVar.rfind("--", 0) == 0) {
         scanVar = scanVar.substr(2);
-        idx = var.find(operation) + 2;
+        idx = find_not_in_brackets(scanVar, operation) + 2;
     } else {
-        idx = var.find(operation);
+        idx = find_not_in_brackets(scanVar, operation);
     }
     if(idx == std::string::npos) return false;
     std::string left = var.substr(0, idx);
@@ -164,7 +170,7 @@ bool resolve_argument_o(
     resolve_argument(ctx, left, "eax", compiledCode);
     resolve_argument(ctx, right, "ebx", compiledCode);
     printAsm(compiledCode);
-    compiledCode.push_back(string_format("mov {}, eax", reg));
+    compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
     if(reg != "ebx") compiledCode.push_back("pop ebx");
     if(reg != "eax") compiledCode.push_back("pop eax");
     return true;
@@ -181,15 +187,15 @@ void resolve_argument(
     // Grouping
 
     #define PARSE_GROUPING(charsBefore, charsAfter) \
-        resolve_argument(ctx, var.substr(charsBefore, var.size() - charsAfter), reg, compiledCode); \
-        if(var[0] == '[') compiledCode.push_back(string_format("mov {}, [{}]", reg, reg));
+        resolve_argument(ctx, var.substr(charsBefore, var.size() - (charsAfter + charsBefore)), reg.c_str(), compiledCode); \
+        if(var[0] == '[') compiledCode.push_back(string_format("mov %s, [%s]", reg.c_str(), reg.c_str()));
 
     // Postfix
 
     if(ends_with(var, "++") || ends_with(var, "--")) {
         PARSE_GROUPING(0, 2);
-        if(ends_with(var, "++")) compiledCode.push_back(string_format("inc {}", reg));
-        else compiledCode.push_back(string_format("dec {}", reg));
+        if(ends_with(var, "++")) compiledCode.push_back(string_format("inc %s", reg.c_str()));
+        else compiledCode.push_back(string_format("dec %s", reg.c_str()));
         return;
     }
 
@@ -197,24 +203,26 @@ void resolve_argument(
 
     if(var.rfind("++", 0) == 0 || var.rfind("--", 0) == 0) {
         if(((var[2] == '(' && var.back() == ')') || (var[2] == '[' && var.back() == ']')) && matchingBrackets(var.substr(2, var.size() - 4))) {
-            PARSE_GROUPING(2, 0);
-            if(var.rfind("++", 0) == 0) compiledCode.push_back(string_format("inc {}", reg));
-            else compiledCode.push_back(string_format("dec {}", reg));
+            PARSE_GROUPING(3, 1);
+            if(var.rfind("++", 0) == 0) compiledCode.push_back(string_format("inc %s", reg.c_str()));
+            else compiledCode.push_back(string_format("dec %s", reg.c_str()));
             return;
         }
     }
     if(var[0] == '~' || var[0] == '!') {
         if(((var[1] == '(' && var.back() == ')') || (var[1] == '[' && var.back() == ']')) && matchingBrackets(var.substr(1, var.size() - 3))) {
-            PARSE_GROUPING(1, 0);
-            string_format("not {}", reg);
+            PARSE_GROUPING(2, 1);
+            string_format("not %s", reg.c_str());
             return;
         }
     }
 
     if(((var[0] == '(' && var.back() == ')') || (var[0] == '[' && var.back() == ']')) && matchingBrackets(var.substr(1, var.size() - 2))) {
-        PARSE_GROUPING(0, 0);
+        PARSE_GROUPING(1, 1);
         return;
     }
+
+    #undef PARSE_GROUPING
 
     // List in order of reverse precedence
 
@@ -325,15 +333,15 @@ void resolve_argument(
 
     if(var.rfind("++", 0) == 0 || var.rfind("--", 0) == 0) {
         resolve_argument_i(ctx, var.substr(2), reg, compiledCode);
-        if(var.rfind("++", 0) == 0) compiledCode.push_back(string_format("inc {}", reg));
-        else compiledCode.push_back(string_format("dec {}", reg));
+        if(var.rfind("++", 0) == 0) compiledCode.push_back(string_format("inc %s", reg));
+        else compiledCode.push_back(string_format("dec %s", reg.c_str()));
         return;
     }
 
     if(ends_with(var, "++") || ends_with(var, "--")) {
         resolve_argument_i(ctx, var.substr(0, var.size() - 2), reg, compiledCode);
-        if(ends_with(var, "++")) compiledCode.push_back(string_format("inc {}", reg));
-        else compiledCode.push_back(string_format("dec {}", reg));
+        if(ends_with(var, "++")) compiledCode.push_back(string_format("inc %s", reg));
+        else compiledCode.push_back(string_format("dec %s", reg.c_str()));
         return;
     }
 
@@ -354,6 +362,7 @@ int calculateIndentation(std::string line)
 
 void writeFunctionExit(std::vector<std::string> &compiledCode)
 {
+    if(compiledCode.back() == "ret") return;
     compiledCode.push_back("push eax");
     compiledCode.push_back("mov eax, ebp");
     compiledCode.push_back("call free");
@@ -378,37 +387,43 @@ std::vector<std::string> preprocessFunction(
         std::unique_ptr<std::string> linePtr = getLine();
         if(!linePtr) break;
         std::string line = *linePtr;
-        trim(line);
-        if(line.empty()) continue;
-        if(indentation <= calculateIndentation(line)) break;
-        if(std::regex_match(line, std::regex("([^\\s]+)\\s*:"))) {
+        if(indentation >= calculateIndentation(line)) break;
+        if(trim_copy(line).empty()) continue;
+        if(std::regex_match(line, std::regex("\\s*([^\\s]+)\\s*:"))) {
             int innerIndentation = calculateIndentation(line);
             int posBkp2 = file.tellg();
             while(linePtr && !linePtr->empty() && calculateIndentation(*linePtr) > innerIndentation) {
                 posBkp2 = file.tellg();
                 linePtr = getLine();
             }
+            file.clear();
             file.seekg(posBkp2);
             continue;
         }
+        trim(line);
         std::smatch varMatch;
         if(std::regex_match(line, varMatch, std::regex("([^\\s]+)\\s*(=|<|>)\\s*.+"))) {
             std::string var = varMatch[1];
             if(var[0] <= '9') continue;
-            if(var == "return") continue;
+            if(var == "return" || var == "args") continue;
             Context superCtx = *ctx;
-            while(superCtx.parent) {
-                if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
-                if(superCtx.parent == nullptr) {
-                    variables.push_back(var);
-                    break;
+            if(superCtx.parent == nullptr) {
+                variables.push_back(var);
+                break;
+            } else {
+                while(superCtx.parent) {
+                    if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
+                    if(superCtx.parent == nullptr) {
+                        variables.push_back(var);
+                        break;
+                    }
+                    superCtx = *superCtx.parent;
                 }
-                superCtx = *superCtx.parent;
             }
         } else if (std::regex_match(line, varMatch, std::regex("\\[[^\\s]+\\]"))) {
             std::string var = varMatch[1];
             if(var[0] <= '9') continue;
-            if(var == "return") continue;
+            if(var == "return" || var == "args") continue;
             Context superCtx = *ctx;
             while(superCtx.parent) {
                 if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
@@ -421,6 +436,7 @@ std::vector<std::string> preprocessFunction(
         }
     }
 
+    file.clear();
     file.seekg(posBkp);
     return variables;
 }
@@ -464,7 +480,7 @@ void compileLine(
             trim(line);
             compiledCode.push_back(line);
         }
-        compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
     std::smatch match;
@@ -479,6 +495,8 @@ void compileLine(
 
         compiledCode.push_back("pop ebx");
         compiledCode.push_back("pop eax");
+
+        if(match[1] == "return") writeFunctionExit(compiledCode);
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*>\\s*(.+)"))) {
         compiledCode.push_back("push eax");
@@ -491,6 +509,8 @@ void compileLine(
 
         compiledCode.push_back("pop ebx");
         compiledCode.push_back("pop eax");
+
+        if(match[1] == "return") writeFunctionExit(compiledCode);
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*<\\s*(.+)"))) {
         compiledCode.push_back("push eax");
@@ -506,18 +526,21 @@ void compileLine(
     }
 
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*:"))) {
-        std::string functionLabel = string_format("{}_f{}", ctx->name, match[1]);
+        std::string functionName = match[1];
+        string_replace(functionName, std::string("_"), std::string("__"));
+        std::string functionLabel = string_format("%s_f%s", ctx->name.c_str(), functionName.c_str());
 
         std::vector<std::string> functionVars = preprocessFunction(ctx, indentation, getLine, file);
 
         std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), ctx, ctx->root});
 
-        compiledCode.push_back(string_format("jmp {}_e", functionLabel));
-        compiledCode.push_back(string_format("{}:", functionLabel));
+        compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
+        compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
         compiledCode.push_back("push ebp");
         compiledCode.push_back("push eax");
-        compiledCode.push_back(string_format("mov eax, {}", 4 * functionVars.size()));
+        compiledCode.push_back(string_format("mov eax, %d", 4 * functionVars.size()));
         compiledCode.push_back("call malloc");
+        compiledCode.push_back("mov [eax], ebp");
         compiledCode.push_back("mov ebp, eax");
         compiledCode.push_back("pop eax");
         for(;;) {
@@ -525,11 +548,12 @@ void compileLine(
             if(!linePtr) break;
             line = *linePtr.get();
             if(trim_copy(line).empty()) continue;
-            if(indentation <= calculateIndentation(line)) break;
+            if(indentation >= calculateIndentation(line)) break;
             compileLine(nCtx, line, getLine, compiledCode, definitions, file);
         }
-        compiledCode.push_back(string_format("{}.end:", functionLabel));
-        compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        writeFunctionExit(compiledCode);
+        compiledCode.push_back(string_format("%s_e:", functionLabel.c_str()));
+        if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
     }
 
     if(std::regex_match(line, match, std::regex("delete\\s+([^\\s]+)"))) {
@@ -540,53 +564,55 @@ void compileLine(
     }
 
     if(std::regex_match(line, match, std::regex("if\\s+([^\\s].+)\\s*:"))) {
-        std::string ifLabel = allocateLabel(string_format("{}_cif", ctx->name), ctx);
-        compiledCode.push_back(string_format("{}:", ifLabel));
+        std::string ifLabel = allocateLabel(string_format("%s_cif", ctx->name.c_str()), ctx);
+        compiledCode.push_back(string_format("%s:", ifLabel.c_str()));
         compiledCode.push_back("push eax");
         resolve_argument(ctx, match[1], "eax", compiledCode);
         compiledCode.push_back("cmp eax, 0");
         compiledCode.push_back("pop eax");
-        compiledCode.push_back(string_format("jz {}", string_format("{}_cel", ifLabel)));
+        compiledCode.push_back(string_format("jz %s", string_format("%s_cel", ifLabel.c_str())));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
             line = *linePtr.get();
             if(trim_copy(line).empty()) continue;
-            if(indentation <= calculateIndentation(line)) break;
+            if(indentation >= calculateIndentation(line)) break;
             compileLine(ctx, line, getLine, compiledCode, definitions, file);
         }
         if(std::regex_match(line, std::regex("else\\s*:"))) {
-            compiledCode.push_back(string_format("jmp {}_e:", ifLabel));
-            compiledCode.push_back(string_format("{}_cel:", ifLabel));
+            compiledCode.push_back(string_format("jmp %s_e:", ifLabel.c_str()));
+            compiledCode.push_back(string_format("%s_cel:", ifLabel.c_str()));
             for(;;) {
                 std::unique_ptr<std::string> linePtr = getLine();
                 if(!linePtr) break;
                 line = *linePtr.get();
                 if(trim_copy(line).empty()) continue;
-                if(indentation <= calculateIndentation(line)) break;
+                if(indentation >= calculateIndentation(line)) break;
                 compileLine(ctx, line, getLine, compiledCode, definitions, file);
             }
-        } else compiledCode.push_back(string_format("{}_cel:", ifLabel));
-        compiledCode.push_back(string_format("{}_e:", ifLabel));
+        } else compiledCode.push_back(string_format("%s_cel:", ifLabel.c_str()));
+        compiledCode.push_back(string_format("%s_e:", ifLabel.c_str()));
+        if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
     }
 
     if(std::regex_match(line, match, std::regex("while\\s+([^\\s].+)\\s*:"))) {
-        std::string whileLabel = allocateLabel(string_format("{}_cwhile", ctx->name), ctx);
-        compiledCode.push_back(string_format("{}:", whileLabel));
+        std::string whileLabel = allocateLabel(string_format("%s_cwhile", ctx->name.c_str()), ctx);
+        compiledCode.push_back(string_format("%s:", whileLabel.c_str()));
         compiledCode.push_back("push eax");
         resolve_argument(ctx, match[1], "eax", compiledCode);
         compiledCode.push_back("cmp eax, 0");
         compiledCode.push_back("pop eax");
-        compiledCode.push_back(string_format("jz {}", string_format("{}_e", whileLabel)));
+        compiledCode.push_back(string_format("jz %s", string_format("%s_e", whileLabel.c_str())));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
             line = *linePtr.get();
             if(trim_copy(line).empty()) continue;
-            if(indentation <= calculateIndentation(line)) break;
+            if(indentation >= calculateIndentation(line)) break;
             compileLine(ctx, line, getLine, compiledCode, definitions, file);
-            compiledCode.push_back(string_format("jmp {}", whileLabel));
+            compiledCode.push_back(string_format("jmp %s", whileLabel.c_str()));
         }
-        compiledCode.push_back(string_format("{}_e:", whileLabel));
+        compiledCode.push_back(string_format("%s_e:", whileLabel.c_str()));
+        if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
     }
 }

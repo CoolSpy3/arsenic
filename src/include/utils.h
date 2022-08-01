@@ -65,3 +65,7 @@ inline bool ends_with(std::string const & value, std::string const & ending)
     if (ending.size() > value.size()) return false;
     return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
+
+void string_replace(std::string str, std::string search, std::string replace);
+
+std::size_t find_not_in_brackets(std::string str, std::string find);

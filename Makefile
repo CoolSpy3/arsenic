@@ -18,7 +18,9 @@ bin/arsenic.exe: $(OBJS)
 bin/debug/arsenic.exe: $(DEBUG_OBJS)
 	g++ -g -Wall -Werror -O0 --std=c++17 -mconsole -o bin/debug/arsenic.exe $(DEBUG_OBJS)
 
-.PHONY: clean build rebuild debug
+.PHONY: all clean build rebuild debug
+
+all: build debug
 
 clean:
 	rm -rf bin

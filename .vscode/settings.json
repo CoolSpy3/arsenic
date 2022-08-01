@@ -75,7 +75,8 @@
     "random": "cpp",
     "string_view": "cpp",
     "numbers": "cpp",
-    "sstream": "cpp"
+    "sstream": "cpp",
+    "xmemory0": "cpp"
   },
   "C_Cpp_Runner.cCompilerPath": "gcc",
   "C_Cpp_Runner.cppCompilerPath": "g++",

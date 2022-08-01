@@ -85,19 +85,31 @@ int main(int argc, char **argv)
     std::string dir = argv[1];
     std::string out = argv[2];
 
-    Context rootCtx = Context{"arsenic_", std::vector<std::string>(), std::vector<std::string>(), nullptr, nullptr};
+    Context rootCtx = Context{"arsenic", std::vector<std::string>(), std::vector<std::string>(), nullptr, nullptr};
     rootCtx.root = std::make_shared<Context>(rootCtx);
+
+    rootCtx.variables.push_back(".spr");
+    rootCtx.variables.push_back(".arg");
+    rootCtx.variables.push_back(".ret");
 
     recursivelyPreprocessDirectory(rootCtx.root, dir, rootCtx.variables);
 
     std::vector<std::string> compiledCode, definitions;
+
     recursivelyCompileDirectory(rootCtx.root, dir, compiledCode, definitions);
     compiledCode.insert(compiledCode.begin(), definitions.begin(), definitions.end());
 
     std::ofstream os(out);
 
+    os << "arsenic:" << std::endl;
+
     os << "pushad" << std::endl;
     os << "pushfd" << std::endl;
+
+    os << "push ebp" << std::endl;
+    os << string_format("mov eax, %d", rootCtx.variables.size()) << std::endl;
+    os << "call malloc" << std::endl;
+    os << "mov ebp, eax" << std::endl;
 
     for (std::string line : compiledCode)
     {
@@ -105,6 +117,10 @@ int main(int argc, char **argv)
         if(std::regex_match(line, nopMovMatch, std::regex("mov (e?([a-d](l|h|x)|si|di)),\\s*(e?([a-d](l|h|x)|si|di))")) && nopMovMatch[1] == nopMovMatch[2]) continue;
         os << line << std::endl;
     }
+
+    os << "mov eax, ebp" << std::endl;
+    os << "call free" << std::endl;
+    os << "pop ebp" << std::endl;
 
     os << "popfd" << std::endl;
     os << "popad" << std::endl;
