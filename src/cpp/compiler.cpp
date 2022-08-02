@@ -2,6 +2,13 @@
 
 #define CHECK_SPECIAL_VARS(var) var == "args" ? ".arg" : var == "return" ? ".ret" : var
 
+Struct_ findStruct(std::shared_ptr<Context> ctx, std::string name) {
+    do {
+        if(ctx->structs.count(name)) return ctx->structs.find(name)->second;
+        ctx = ctx->parent;
+    } while(ctx);
+}
+
 bool reg_match(std::string reg, char match) {
     return std::regex_match(reg, std::regex(string_format("e?%c(l|h|x)", match)));
 }
@@ -13,6 +20,17 @@ void resolve_argument_a(
     std::vector<std::string>& compiledCode,
     int numParents = 0
 ) {
+    std::smatch structMatch;
+    if(std::regex_match(var, structMatch, std::regex("\\s*\\(\\s*\\(\\s*struct \\s*(\\w+)\\s*\\)\\s*(\\w+)\\s*\\)\\.(\\w+)\\s*"))) {
+        std::string structName = structMatch[1];
+        std::string structVar = structMatch[2];
+        std::string structMember = structMatch[3];
+        Struct_ struct_ = findStruct(ctx, structName);
+        int memberOffset = struct_.members.find(structMember)->second;
+        resolve_argument_a(ctx, structVar, reg, compiledCode);
+        compiledCode.push_back(string_format("add %s, %d", reg.c_str(), memberOffset));
+        return;
+    }
     var = CHECK_SPECIAL_VARS(var);
     std::vector<std::string>::iterator it = std::find(ctx->variables.begin(), ctx->variables.end(), var);
     if(it == ctx->variables.end()) {
@@ -41,6 +59,18 @@ void resolve_argument_i(
     int numParents = 0
 ) {
     trim(var);
+    std::smatch structMatch;
+    if(std::regex_match(var, structMatch, std::regex("\\(\\s*\\(\\s*struct \\s*(.+)\\s*\\)\\s*(\\w+)\\s*\\)\\.(\\w+)"))) {
+        std::string structName = structMatch[1];
+        std::string structVar = structMatch[2];
+        std::string structMember = structMatch[3];
+        Struct_ struct_ = findStruct(ctx, structName);
+        int memberOffset = struct_.members.find(structMember)->second;
+        resolve_argument_a(ctx, structVar, reg, compiledCode);
+        compiledCode.push_back(string_format("add %s, %d", reg.c_str(), memberOffset));
+        compiledCode.push_back(string_format("mov %s, [%s]", reg.c_str()));
+        return;
+    }
     if(('0' <= var[0] && var[0] <= '9') || var[0] == '\'') {
         compiledCode.push_back(string_format("mov %s, %s", reg.c_str(), var.c_str()));
         return;
@@ -544,7 +574,7 @@ void compileLine(
 
         std::vector<std::string> functionVars = preprocessFunction(ctx, indentation, getLine, file);
 
-        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), std::map<std::string, std::string>(), ctx, ctx->root});
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root});
 
         compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
         compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
@@ -637,7 +667,7 @@ void compileLine(
         do {
             if((functionLabelIttr = searchCtx->functions.find(functionName)) != searchCtx->functions.end()) break;
             searchCtx = searchCtx->parent;
-        } while(searchCtx->parent);
+        } while(searchCtx);
 
         std::string functionLabel = functionLabelIttr->second;
 
@@ -671,4 +701,33 @@ void compileLine(
 
     if(line == "O0") compiledCode.push_back(";arsenic_o0");
     if(line == "O1") compiledCode.push_back(";arsenic_o1");
+
+    if(line.rfind("struct ", 0) == 0) {
+        std::vector<std::string> tokens = split(line, ' ');
+
+        std::string structName = tokens[1];
+        Struct_ struct_;
+
+        ctx->structs.emplace(structName, struct_);
+
+        int size = 0;
+
+        for(int i = 2; i < tokens.size(); i++) {
+            std::string name = tokens[i];
+
+            if(name == "struct") {
+                i++;
+                structName = tokens[i];
+                i++;
+                name = tokens[i];
+                struct_.members.emplace(name, size);
+                size += findStruct(ctx, structName).size;
+            } else {
+                struct_.members.emplace(name, size);
+                size += 4;
+            }
+        }
+
+        struct_.size = size;
+    }
 }

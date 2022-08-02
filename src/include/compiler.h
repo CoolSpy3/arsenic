@@ -11,9 +11,15 @@
 
 struct Context_;
 
+struct Struct_ {
+    std::map<std::string, int> members;
+    int size;
+};
+
 struct Context {
     std::string name;
-    std::vector<std::string> variables, structs;
+    std::vector<std::string> variables;
+    std::map<std::string, Struct_> structs;
     std::map<std::string, std::string> functions;
     std::shared_ptr<Context> parent, root;
 };
