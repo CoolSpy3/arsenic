@@ -100,6 +100,8 @@ int main(int argc, char **argv)
     recursivelyCompileDirectory(rootCtx.root, dir, compiledCode, definitions);
     compiledCode.insert(compiledCode.begin(), definitions.begin(), definitions.end());
 
+    while(transform_code(compiledCode));
+
     std::ofstream os(out);
 
     os << "arsenic:" << std::endl;
@@ -120,10 +122,9 @@ int main(int argc, char **argv)
 
     os << "popfd" << std::endl;
     os << "popad" << std::endl;
+    os << "ret" << std::endl;
 
     os.close();
-
-    while(transform_file(out));
 
     return 0;
 }

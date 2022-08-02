@@ -16,16 +16,19 @@ std::string get_mask(std::string reg) {
     return "0xFFFF";
 }
 
-int transform_file(std::string fileName) {
-    std::vector<std::string> lines;
-    std::ifstream reader(fileName);
-    std::string line;
-    while (std::getline(reader, line)) lines.push_back(line);
-    reader.close();
+bool lookahead(std::string line, std::vector<std::string> lines, int i) {
+    for(std::size_t j = i; j < lines.size(); j++) {
+        if(lines[j] == line) return true;
+        if(lines[j].back() == ':' || lines[j] == "ret") return false;
+    }
+    return false;
+}
 
+int transform_code(std::vector<std::string> &lines) {
     std::vector<std::string> transformedLines;
     int numTransformations = 0;
     bool optimizationEnabled = true;
+    std::vector<std::string> removedPops;
     for(std::size_t i = 1; i < lines.size() - 1; i++) {
         std::string line = lines[i];
         if(!optimizationEnabled) {
@@ -44,7 +47,7 @@ int transform_file(std::string fileName) {
 
         std::smatch match;
 
-        if(std::regex_match(line, std::regex(string_format("(%s)\\s+(.+),\\s*(%s)", matOps, regs)))) {
+        if(std::regex_match(line, match, std::regex(string_format("(%s)\\s+(.+),\\s*(%s)", matOps.c_str(), regs.c_str())))) {
             std::string op = match[1];
             std::string dst = match[2];
             std::string src = match[3];
@@ -77,11 +80,42 @@ int transform_file(std::string fileName) {
                 continue;
             }
         }
+
+        if(std::regex_match(line, match, std::regex(string_format("push (%s)", regs.c_str())))) {
+            std::string reg = match[1];
+            bool regModified = false;
+            for(std::size_t j = i + 1; j < lines.size(); j++) {
+                if(lines[j].back() == ':' || lines[j] == "ret") break;
+                if(line == lines[j]) break;
+                if(lines[j].find(reg) != std::string::npos || lines[j].rfind("int ", 0) == 0 || lines[j].rfind("call ", 0) == 0) {
+                    regModified = true;
+                    break;
+                }
+            }
+            if(regModified) {
+                transformedLines.push_back(line);
+            } else if(lookahead("pop " , lines, i)) {
+                removedPops.push_back("pop " + reg);
+                numTransformations++;
+            }
+            continue;
+        }
+
+        if(removedPops.size() && removedPops.back() == line) {
+            transformedLines.push_back(removedPops.back());
+            removedPops.pop_back();
+            numTransformations++;
+            continue;
+        }
+
         transformedLines.push_back(line);
     }
 
-    std::ofstream writer(fileName);
-    for(std::string line : transformedLines) writer << line << std::endl;
-    writer.close();
-    return 0;
+    if(removedPops.size()) {
+        std::cerr << "Error: stack is likely corrupted after optimization! (Please debug the program)" << std::endl;
+        exit(1);
+    }
+
+    lines = transformedLines;
+    return numTransformations;
 }

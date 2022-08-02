@@ -3,7 +3,7 @@
 #define CHECK_SPECIAL_VARS(var) var == "args" ? ".arg" : var == "return" ? ".ret" : var
 
 bool reg_match(std::string reg, char match) {
-    return std::regex_match(reg, std::regex(string_format("e?%c(l|h|x)")));
+    return std::regex_match(reg, std::regex(string_format("e?%c(l|h|x)", match)));
 }
 
 void resolve_argument_a(
@@ -486,7 +486,9 @@ void compileLine(
                 std::regex_replace(line, std::regex("\\[[^\\[\\]]*,\\s*(eax|ebx|ecx|edx)\\]"), "$1");
             }
             trim(line);
-            compiledCode.push_back(line);
+            if(line == "O0") compiledCode.push_back(";arsenic_o0");
+            else if(line == "O1") compiledCode.push_back(";arsenic_o1");
+            else compiledCode.push_back(line);
         }
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
