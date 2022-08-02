@@ -20,7 +20,8 @@ void resolve_argument_a(
         }
     } else {
         if(reg != "eax") compiledCode.push_back("push eax");
-        compiledCode.push_back("mov eax, [esp-4]");
+        compiledCode.push_back("mov eax, [ebp]");
+        if(var == ".ret") compiledCode.push_back("mov eax, [eax]");
         for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
         compiledCode.push_back(string_format("add eax, %d", 4 * std::distance(ctx->variables.begin(), it)));
         if(reg != "eax") compiledCode.push_back("pop eax");
@@ -55,6 +56,7 @@ void resolve_argument_i(
     } else {
         if(reg != "eax") compiledCode.push_back("push eax");
         compiledCode.push_back("mov eax, [ebp]");
+        if(var == ".ret") compiledCode.push_back("mov eax, [eax]");
         for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
         compiledCode.push_back(string_format("mov eax, [eax+%d]", 4 * std::distance(ctx->variables.begin(), it)));
         if(reg != "eax") compiledCode.push_back("pop eax");
