@@ -7,6 +7,8 @@ Struct_ findStruct(std::shared_ptr<Context> ctx, std::string name) {
         if(ctx->structs.count(name)) return ctx->structs.find(name)->second;
         ctx = ctx->parent;
     } while(ctx);
+    std::cerr << "Error: struct " << name << " not found" << std::endl;
+    exit(1);
 }
 
 bool reg_match(std::string reg, char match) {
@@ -712,7 +714,7 @@ void compileLine(
 
         int size = 0;
 
-        for(int i = 2; i < tokens.size(); i++) {
+        for(std::size_t i = 2; i < tokens.size(); i++) {
             std::string name = tokens[i];
 
             if(name == "struct") {
