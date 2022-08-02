@@ -3,8 +3,9 @@
 #include <cctype>
 #include <locale>
 #include <memory>
-#include <string>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 
 // Credit for trim functions: Evan Teran https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring
 // trim from start (in place)
@@ -69,3 +70,5 @@ inline bool ends_with(std::string const & value, std::string const & ending)
 void string_replace(std::string str, std::string search, std::string replace);
 
 std::size_t find_not_in_brackets(std::string str, std::string find);
+
+std::vector<std::string> split(std::string str, char delimiter);

@@ -37,3 +37,13 @@ std::size_t find_not_in_brackets(std::string str, std::string find) {
     }
     return std::string::npos;
 }
+
+std::vector<std::string> split(std::string str, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(str);
+    while (std::getline(tokenStream, token, delimiter)) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}

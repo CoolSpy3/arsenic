@@ -2,6 +2,10 @@
 
 #define CHECK_SPECIAL_VARS(var) var == "args" ? ".arg" : var == "return" ? ".ret" : var
 
+bool reg_match(std::string reg, char match) {
+    return std::regex_match(reg, std::regex(string_format("e?%c(l|h|x)")));
+}
+
 void resolve_argument_a(
     std::shared_ptr<Context> ctx,
     std::string var,
@@ -19,12 +23,13 @@ void resolve_argument_a(
             exit(1);
         }
     } else {
-        if(reg != "eax") compiledCode.push_back("push eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
         compiledCode.push_back("mov eax, [ebp]");
         if(var == ".ret") compiledCode.push_back("mov eax, [eax]");
         for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
         compiledCode.push_back(string_format("add eax, %d", 4 * std::distance(ctx->variables.begin(), it)));
-        if(reg != "eax") compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
     }
 }
 
@@ -37,7 +42,7 @@ void resolve_argument_i(
 ) {
     trim(var);
     if(('0' <= var[0] && var[0] <= '9') || var[0] == '\'') {
-        compiledCode.push_back(string_format("mov eax, %s", var.c_str()));
+        compiledCode.push_back(string_format("mov %s, %s", reg.c_str(), var.c_str()));
         return;
     }
     if(var[0] == '(' || var[0] == '[') {
@@ -54,12 +59,13 @@ void resolve_argument_i(
             exit(1);
         }
     } else {
-        if(reg != "eax") compiledCode.push_back("push eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
         compiledCode.push_back("mov eax, [ebp]");
         if(var == ".ret") compiledCode.push_back("mov eax, [eax]");
         for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
         compiledCode.push_back(string_format("mov eax, [eax+%d]", 4 * std::distance(ctx->variables.begin(), it)));
-        if(reg != "eax") compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
     }
 }
 
@@ -75,7 +81,7 @@ void resolve_argument_p(
 ) {
     trim(var);
     if(var[0] == '{') {
-        if(reg != "eax") compiledCode.push_back("push eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
         std::string elems = var.substr(1, var.size() - 2);
         int numElems = std::count(elems.begin(), elems.end(), ',') + 1;
         compiledCode.push_back(string_format("mov eax, %d ", 4 * numElems));
@@ -87,7 +93,7 @@ void resolve_argument_p(
             resolve_argument(ctx, elem, "ebx", compiledCode);
             compiledCode.push_back(string_format("mov [eax+%d], ebx", 4 * i));
         }
-        if(reg != "eax") {
+        if(!reg_match(reg, 'a')) {
             compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
             compiledCode.push_back("pop eax");
         }
@@ -101,7 +107,7 @@ void resolve_argument_p(
         compiledCode.push_back("push esi");
         compiledCode.push_back("push edi");
         compiledCode.push_back("push ecx");
-        if(reg != "eax") compiledCode.push_back("push eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
 
         compiledCode.push_back(string_format("mov esi, %s", svar.c_str()));
         compiledCode.push_back(string_format("mov eax, %d", len));
@@ -116,21 +122,21 @@ void resolve_argument_p(
         compiledCode.push_back("pop esi");
 
         compiledCode.push_back(string_format("mov %s, edi", reg.c_str()));
-        if(reg == "eax") compiledCode.push_back("pop eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
         return;
     }
 
     std::smatch emptyArrayMatch;
     if(std::regex_match(var, emptyArrayMatch, std::regex("(.+){}"))) {
-        if(reg != "eax") compiledCode.push_back("push eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
         resolve_argument(ctx, emptyArrayMatch[1], "eax", compiledCode);
         compiledCode.push_back("call malloc");
         compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-        if(reg != "eax") compiledCode.push_back("pop eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
         return;
     }
 
-    if(reg != "eax") compiledCode.push_back("push eax");
+    if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
     compiledCode.push_back("mov eax, 4");
     compiledCode.push_back("call malloc");
     compiledCode.push_back("push ebx");
@@ -138,7 +144,7 @@ void resolve_argument_p(
     compiledCode.push_back("mov [eax], ebx");
     compiledCode.push_back("pop ebx");
 
-    if(reg != "eax") {
+    if(!reg_match(reg, 'a')) {
         compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
         compiledCode.push_back("pop eax");
     }
@@ -167,14 +173,14 @@ bool resolve_argument_o(
     if(idx == std::string::npos) return false;
     std::string left = var.substr(0, idx);
     std::string right = var.substr(idx + operation.size());
-    if(reg != "eax") compiledCode.push_back("push eax");
-    if(reg != "ebx") compiledCode.push_back("push ebx");
+    if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
+    if(!reg_match(reg, 'b')) compiledCode.push_back("push ebx");
     resolve_argument(ctx, left, "eax", compiledCode);
     resolve_argument(ctx, right, "ebx", compiledCode);
     printAsm(compiledCode);
     compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-    if(reg != "ebx") compiledCode.push_back("pop ebx");
-    if(reg != "eax") compiledCode.push_back("pop eax");
+    if(!reg_match(reg, 'b')) compiledCode.push_back("pop ebx");
+    if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
     return true;
 }
 
@@ -448,7 +454,7 @@ std::string allocateLabel(
     std::shared_ptr<Context> ctx
 ) {
     int i = 0;
-    while(std::count(ctx->functions.begin(), ctx->functions.end(), requestedName + std::to_string(i))) i++;
+    while(ctx->functions.count(requestedName + std::to_string(i))) i++;
     return requestedName + std::to_string(i);
 }
 
@@ -532,9 +538,11 @@ void compileLine(
         string_replace(functionName, std::string("_"), std::string("__"));
         std::string functionLabel = string_format("%s_f%s", ctx->name.c_str(), functionName.c_str());
 
+        ctx->functions.emplace(functionName, functionLabel);
+
         std::vector<std::string> functionVars = preprocessFunction(ctx, indentation, getLine, file);
 
-        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), ctx, ctx->root});
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), std::map<std::string, std::string>(), ctx, ctx->root});
 
         compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
         compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
@@ -543,6 +551,7 @@ void compileLine(
         compiledCode.push_back(string_format("mov eax, %d", 4 * functionVars.size()));
         compiledCode.push_back("call malloc");
         compiledCode.push_back("mov [eax], ebp");
+        compiledCode.push_back("mov [eax+4], ebx");
         compiledCode.push_back("mov ebp, eax");
         compiledCode.push_back("pop eax");
         for(;;) {
@@ -617,4 +626,47 @@ void compileLine(
         compiledCode.push_back(string_format("%s_e:", whileLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
     }
+
+    if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*\\((.*)\\)"))) {
+        std::string functionName = match[1];
+
+        std::shared_ptr<Context> searchCtx = ctx;
+        std::map<std::string, std::string>::iterator functionLabelIttr;
+        do {
+            if((functionLabelIttr = searchCtx->functions.find(functionName)) != searchCtx->functions.end()) break;
+            searchCtx = searchCtx->parent;
+        } while(searchCtx->parent);
+
+        std::string functionLabel = functionLabelIttr->second;
+
+        std::string rawArgs = match[2];
+
+        std::vector<std::string> args = split(rawArgs, ',');
+        if(args.size() > 0) {
+            std::transform(args.begin(), args.end(), args.begin(), [](std::string arg) {
+                return trim_copy(arg);
+            });
+            compiledCode.push_back("push ebx");
+            compiledCode.push_back("push eax");
+            compiledCode.push_back(string_format("mov eax, %d", 4 * args.size()));
+            compiledCode.push_back("call malloc");
+            for(std::size_t i = 0; i < args.size(); i++) {
+                resolve_argument(ctx, args[i], "ebx", compiledCode);
+                compiledCode.push_back(string_format("mov [eax + %d], ebx", 4 * i));
+            }
+            compiledCode.push_back("mov ebx, eax");
+            compiledCode.push_back("pop eax");
+        }
+        compiledCode.push_back(string_format("call %s", functionLabel.c_str()));
+        if(args.size() > 0) {
+            compiledCode.push_back("push eax");
+            compiledCode.push_back("mov ebx, eax");
+            compiledCode.push_back("call free");
+            compiledCode.push_back("pop eax");
+            compiledCode.push_back("pop ebx");
+        }
+    }
+
+    if(line == "O0") compiledCode.push_back(";arsenic_o0");
+    if(line == "O1") compiledCode.push_back(";arsenic_o1");
 }

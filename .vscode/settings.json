@@ -76,7 +76,8 @@
     "string_view": "cpp",
     "numbers": "cpp",
     "sstream": "cpp",
-    "xmemory0": "cpp"
+    "xmemory0": "cpp",
+    "xtree": "cpp"
   },
   "C_Cpp_Runner.cCompilerPath": "gcc",
   "C_Cpp_Runner.cppCompilerPath": "g++",

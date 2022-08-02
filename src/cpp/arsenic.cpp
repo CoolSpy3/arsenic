@@ -1,4 +1,5 @@
 #include "compiler.h"
+#include "transformer.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -85,7 +86,7 @@ int main(int argc, char **argv)
     std::string dir = argv[1];
     std::string out = argv[2];
 
-    Context rootCtx = Context{"arsenic", std::vector<std::string>(), std::vector<std::string>(), nullptr, nullptr};
+    Context rootCtx = Context{"arsenic", std::vector<std::string>(), std::vector<std::string>(), std::map<std::string, std::string>(), nullptr, nullptr};
     rootCtx.root = std::make_shared<Context>(rootCtx);
 
     rootCtx.variables.push_back(".spr");
@@ -107,16 +108,11 @@ int main(int argc, char **argv)
     os << "pushfd" << std::endl;
 
     os << "push ebp" << std::endl;
-    os << string_format("mov eax, %d", rootCtx.variables.size()) << std::endl;
+    os << string_format("mov eax, %d", 4 * rootCtx.variables.size()) << std::endl;
     os << "call malloc" << std::endl;
     os << "mov ebp, eax" << std::endl;
 
-    for (std::string line : compiledCode)
-    {
-        std::smatch nopMovMatch;
-        if(std::regex_match(line, nopMovMatch, std::regex("mov (e?([a-d](l|h|x)|si|di)),\\s*(e?([a-d](l|h|x)|si|di))")) && nopMovMatch[1] == nopMovMatch[2]) continue;
-        os << line << std::endl;
-    }
+    for (std::string line : compiledCode) os << line << std::endl;
 
     os << "mov eax, ebp" << std::endl;
     os << "call free" << std::endl;
@@ -126,6 +122,8 @@ int main(int argc, char **argv)
     os << "popad" << std::endl;
 
     os.close();
+
+    while(transform_file(out));
 
     return 0;
 }

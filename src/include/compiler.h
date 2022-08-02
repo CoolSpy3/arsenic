@@ -2,6 +2,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <regex>
 #include <string>
@@ -12,7 +13,8 @@ struct Context_;
 
 struct Context {
     std::string name;
-    std::vector<std::string> variables, functions;
+    std::vector<std::string> variables, structs;
+    std::map<std::string, std::string> functions;
     std::shared_ptr<Context> parent, root;
 };
 
