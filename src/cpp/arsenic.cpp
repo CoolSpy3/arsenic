@@ -76,6 +76,25 @@ void recursivelyPreprocessDirectory(
         else preprocessFile(ctx, entry.path().string(), variables);
 }
 
+void writeQMacros(std::ostream &os) {
+    os << "%macro pushaq 0" << std::endl;
+    os << "push rax" << std::endl;
+    os << "push rbx" << std::endl;
+    os << "push rcx" << std::endl;
+    os << "push rdx" << std::endl;
+    os << "push rsi" << std::endl;
+    os << "push rdi" << std::endl;
+    os << "%endmacro" << std::endl;
+    os << "%macro popaq 0" << std::endl;
+    os << "pop rdi" << std::endl;
+    os << "pop rsi" << std::endl;
+    os << "pop rdx" << std::endl;
+    os << "pop rcx" << std::endl;
+    os << "pop rbx" << std::endl;
+    os << "pop rax" << std::endl;
+    os << "%endmacro" << std::endl;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -104,24 +123,28 @@ int main(int argc, char **argv)
 
     std::ofstream os(out);
 
+    os << "DEFAULT REL" << std::endl;
+
+    writeQMacros(os);
+
     os << "arsenic:" << std::endl;
 
-    os << "pushad" << std::endl;
-    os << "pushfd" << std::endl;
+    os << "pushaq" << std::endl;
+    os << "pushfq" << std::endl;
 
-    os << "push ebp" << std::endl;
-    os << string_format("mov eax, %d", 4 * rootCtx.variables.size()) << std::endl;
+    os << "push rbp" << std::endl;
+    os << string_format("mov rax, %d", 8 * rootCtx.variables.size()) << std::endl;
     os << "call malloc" << std::endl;
-    os << "mov ebp, eax" << std::endl;
+    os << "mov rbp, rax" << std::endl;
 
     for (std::string line : compiledCode) os << line << std::endl;
 
-    os << "mov eax, ebp" << std::endl;
+    os << "mov rax, rbp" << std::endl;
     os << "call free" << std::endl;
-    os << "pop ebp" << std::endl;
+    os << "pop rbp" << std::endl;
 
-    os << "popfd" << std::endl;
-    os << "popad" << std::endl;
+    os << "popfq" << std::endl;
+    os << "popaq" << std::endl;
     os << "ret" << std::endl;
 
     os.close();

@@ -12,7 +12,7 @@ Struct_ findStruct(std::shared_ptr<Context> ctx, std::string name) {
 }
 
 bool reg_match(std::string reg, char match) {
-    return std::regex_match(reg, std::regex(string_format("e?%c(l|h|x)", match)));
+    return std::regex_match(reg, std::regex(string_format("r?%c(l|h|x)", match)));
 }
 
 void resolve_argument_a(
@@ -43,13 +43,13 @@ void resolve_argument_a(
             exit(1);
         }
     } else {
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
-        compiledCode.push_back("mov eax, [ebp]");
-        if(var == ".ret") compiledCode.push_back("mov eax, [eax]");
-        for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
-        compiledCode.push_back(string_format("add eax, %d", 4 * std::distance(ctx->variables.begin(), it)));
-        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
+        compiledCode.push_back("mov rax, [rbp]");
+        if(var == ".ret") compiledCode.push_back("mov rax, [rax]");
+        for(int i = 0; i < numParents; i++) compiledCode.push_back("mov rax, [rax]");
+        compiledCode.push_back(string_format("add rax, %d", 8 * std::distance(ctx->variables.begin(), it)));
+        compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
     }
 }
 
@@ -91,13 +91,13 @@ void resolve_argument_i(
             exit(1);
         }
     } else {
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
-        compiledCode.push_back("mov eax, [ebp]");
-        if(var == ".ret") compiledCode.push_back("mov eax, [eax]");
-        for(int i = 0; i < numParents; i++) compiledCode.push_back("mov eax, [eax]");
-        compiledCode.push_back(string_format("mov eax, [eax+%d]", 4 * std::distance(ctx->variables.begin(), it)));
-        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
+        compiledCode.push_back("mov rax, [rbp]");
+        if(var == ".ret") compiledCode.push_back("mov rax, [rax]");
+        for(int i = 0; i < numParents; i++) compiledCode.push_back("mov rax, [rax]");
+        compiledCode.push_back(string_format("mov rax, [rax+%d]", 8 * std::distance(ctx->variables.begin(), it)));
+        compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
     }
 }
 
@@ -113,21 +113,21 @@ void resolve_argument_p(
 ) {
     trim(var);
     if(var[0] == '{') {
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
         std::string elems = var.substr(1, var.size() - 2);
         int numElems = std::count(elems.begin(), elems.end(), ',') + 1;
-        compiledCode.push_back(string_format("mov eax, %d ", 4 * numElems));
+        compiledCode.push_back(string_format("mov rax, %d ", 8 * numElems));
         compiledCode.push_back("call malloc");
         for(int i = 0; i < numElems; i++) {
             int elemLen = elems.find(',');
             std::string elem = elems.substr(0, elemLen);
             elems = elems.substr(elemLen + 1);
-            resolve_argument(ctx, elem, "ebx", compiledCode);
-            compiledCode.push_back(string_format("mov [eax+%d], ebx", 4 * i));
+            resolve_argument(ctx, elem, "rbx", compiledCode);
+            compiledCode.push_back(string_format("mov [rax+%d], rbx", 8 * i));
         }
         if(!reg_match(reg, 'a')) {
-            compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-            compiledCode.push_back("pop eax");
+            compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
+            compiledCode.push_back("pop rax");
         }
         return;
     }
@@ -136,49 +136,49 @@ void resolve_argument_p(
         int id = definitions.size();
         std::string svar = string_format("arsenic_s%d", id);
         definitions.push_back(string_format("%s db %s, 0", svar.c_str(), var.c_str()));
-        compiledCode.push_back("push esi");
-        compiledCode.push_back("push edi");
-        compiledCode.push_back("push ecx");
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
+        compiledCode.push_back("push rsi");
+        compiledCode.push_back("push rdi");
+        compiledCode.push_back("push rcx");
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
 
-        compiledCode.push_back(string_format("mov esi, %s", svar.c_str()));
-        compiledCode.push_back(string_format("mov eax, %d", len));
+        compiledCode.push_back(string_format("mov rsi, %s", svar.c_str()));
+        compiledCode.push_back(string_format("mov rax, %d", len));
         compiledCode.push_back("call malloc");
-        compiledCode.push_back("mov edi, eax");
-        compiledCode.push_back(string_format("mov ecx, %d", len));
+        compiledCode.push_back("mov rdi, rax");
+        compiledCode.push_back(string_format("mov rcx, %d", len));
 
         compiledCode.push_back("rep movsb");
 
-        compiledCode.push_back("pop ecx");
-        compiledCode.push_back("pop edi");
-        compiledCode.push_back("pop esi");
+        compiledCode.push_back("pop rcx");
+        compiledCode.push_back("pop rdi");
+        compiledCode.push_back("pop rsi");
 
-        compiledCode.push_back(string_format("mov %s, edi", reg.c_str()));
-        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("mov %s, rdi", reg.c_str()));
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
         return;
     }
 
     std::smatch emptyArrayMatch;
     if(std::regex_match(var, emptyArrayMatch, std::regex("(.+){}"))) {
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
-        resolve_argument(ctx, emptyArrayMatch[1], "eax", compiledCode);
+        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
+        resolve_argument(ctx, emptyArrayMatch[1], "rax", compiledCode);
         compiledCode.push_back("call malloc");
-        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-        if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
+        if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
         return;
     }
 
-    if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
-    compiledCode.push_back("mov eax, 4");
+    if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
+    compiledCode.push_back("mov rax, 8");
     compiledCode.push_back("call malloc");
-    compiledCode.push_back("push ebx");
-    resolve_argument(ctx, var, "ebx", compiledCode);
-    compiledCode.push_back("mov [eax], ebx");
-    compiledCode.push_back("pop ebx");
+    compiledCode.push_back("push rbx");
+    resolve_argument(ctx, var, "rbx", compiledCode);
+    compiledCode.push_back("mov [rax], rbx");
+    compiledCode.push_back("pop rbx");
 
     if(!reg_match(reg, 'a')) {
-        compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
+        compiledCode.push_back("pop rax");
     }
 }
 
@@ -205,14 +205,14 @@ bool resolve_argument_o(
     if(idx == std::string::npos) return false;
     std::string left = var.substr(0, idx);
     std::string right = var.substr(idx + operation.size());
-    if(!reg_match(reg, 'a')) compiledCode.push_back("push eax");
-    if(!reg_match(reg, 'b')) compiledCode.push_back("push ebx");
-    resolve_argument(ctx, left, "eax", compiledCode);
-    resolve_argument(ctx, right, "ebx", compiledCode);
+    if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
+    if(!reg_match(reg, 'b')) compiledCode.push_back("push rbx");
+    resolve_argument(ctx, left, "rax", compiledCode);
+    resolve_argument(ctx, right, "rbx", compiledCode);
     printAsm(compiledCode);
-    compiledCode.push_back(string_format("mov %s, eax", reg.c_str()));
-    if(!reg_match(reg, 'b')) compiledCode.push_back("pop ebx");
-    if(!reg_match(reg, 'a')) compiledCode.push_back("pop eax");
+    compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
+    if(!reg_match(reg, 'b')) compiledCode.push_back("pop rbx");
+    if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
     return true;
 }
 
@@ -267,108 +267,108 @@ void resolve_argument(
     // List in order of reverse precedence
 
     if(resolve_argument_o(ctx, var, reg, "|", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("or eax, ebx");
+        compiledCode.push_back("or rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "^", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("xor eax, ebx");
+        compiledCode.push_back("xor rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "&", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("and eax, ebx");
+        compiledCode.push_back("and rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "!=", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("cmp eax, ebx");
+        compiledCode.push_back("cmp rax, rbx");
         compiledCode.push_back("lahf");
-        compiledCode.push_back("shr eax, 14"); // 6 + 8 = 14
-        compiledCode.push_back("not eax");
-        compiledCode.push_back("and eax, 1");
+        compiledCode.push_back("shr rax, 14"); // 6 + 8 = 14
+        compiledCode.push_back("not rax");
+        compiledCode.push_back("and rax, 1");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "==", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("cmp eax, ebx");
+        compiledCode.push_back("cmp rax, rbx");
         compiledCode.push_back("lahf");
-        compiledCode.push_back("shr eax, 14"); // 6 + 8 = 14
-        compiledCode.push_back("and eax, 1");
+        compiledCode.push_back("shr rax, 14"); // 6 + 8 = 14
+        compiledCode.push_back("and rax, 1");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, ">=", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("cmp eax, ebx");
+        compiledCode.push_back("cmp rax, rbx");
         compiledCode.push_back("lahf");
-        compiledCode.push_back("shr eax, 8");
-        compiledCode.push_back("mov ebx, eax");
-        compiledCode.push_back("shr eax, 6"); // 6 + 8 = 14
-        compiledCode.push_back("not eax");
-        compiledCode.push_back("and eax, 1");
-        compiledCode.push_back("and ebx, 1");
-        compiledCode.push_back("or eax, ebx");
+        compiledCode.push_back("shr rax, 8");
+        compiledCode.push_back("mov rbx, rax");
+        compiledCode.push_back("shr rax, 6"); // 6 + 8 = 14
+        compiledCode.push_back("not rax");
+        compiledCode.push_back("and rax, 1");
+        compiledCode.push_back("and rbx, 1");
+        compiledCode.push_back("or rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "<=", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("cmp eax, ebx");
+        compiledCode.push_back("cmp rax, rbx");
         compiledCode.push_back("lahf");
-        compiledCode.push_back("shr eax, 8");
-        compiledCode.push_back("mov ebx, eax");
-        compiledCode.push_back("shr eax, 6"); // 6 + 8 = 14
-        compiledCode.push_back("and eax, 1");
-        compiledCode.push_back("and ebx, 1");
-        compiledCode.push_back("or eax, ebx");
+        compiledCode.push_back("shr rax, 8");
+        compiledCode.push_back("mov rbx, rax");
+        compiledCode.push_back("shr rax, 6"); // 6 + 8 = 14
+        compiledCode.push_back("and rax, 1");
+        compiledCode.push_back("and rbx, 1");
+        compiledCode.push_back("or rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, ">", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("cmp eax, ebx");
+        compiledCode.push_back("cmp rax, rbx");
         compiledCode.push_back("lahf");
-        compiledCode.push_back("shr eax, 8");
-        compiledCode.push_back("mov ebx, eax");
-        compiledCode.push_back("shr eax, 6"); // 6 + 8 = 14
-        compiledCode.push_back("not eax");
-        compiledCode.push_back("and eax, 1");
-        compiledCode.push_back("not ebx");
-        compiledCode.push_back("and ebx, 1");
-        compiledCode.push_back("and eax, ebx");
+        compiledCode.push_back("shr rax, 8");
+        compiledCode.push_back("mov rbx, rax");
+        compiledCode.push_back("shr rax, 6"); // 6 + 8 = 14
+        compiledCode.push_back("not rax");
+        compiledCode.push_back("and rax, 1");
+        compiledCode.push_back("not rbx");
+        compiledCode.push_back("and rbx, 1");
+        compiledCode.push_back("and rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "<", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("cmp eax, ebx");
+        compiledCode.push_back("cmp rax, rbx");
         compiledCode.push_back("lahf");
-        compiledCode.push_back("shr eax, 8");
-        compiledCode.push_back("and eax, 1");
+        compiledCode.push_back("shr rax, 8");
+        compiledCode.push_back("and rax, 1");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, ">>", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("shr eax, ebx");
+        compiledCode.push_back("shr rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "<<", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("shl eax, ebx");
+        compiledCode.push_back("shl rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "-", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("sub eax, ebx");
+        compiledCode.push_back("sub rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "+", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("add eax, ebx");
+        compiledCode.push_back("add rax, rbx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "%", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("push edx");
-        compiledCode.push_back("div ebx");
-        compiledCode.push_back("mov eax, edx");
-        compiledCode.push_back("pop edx");
+        compiledCode.push_back("push rdx");
+        compiledCode.push_back("div rbx");
+        compiledCode.push_back("mov rax, rdx");
+        compiledCode.push_back("pop rdx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "/", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("push edx");
-        compiledCode.push_back("div ebx");
-        compiledCode.push_back("pop edx");
+        compiledCode.push_back("push rdx");
+        compiledCode.push_back("div rbx");
+        compiledCode.push_back("pop rdx");
     }, compiledCode)) return;
 
     if(resolve_argument_o(ctx, var, reg, "*", [](std::vector<std::string> &compiledCode) {
-        compiledCode.push_back("push edx");
-        compiledCode.push_back("mul ebx");
-        compiledCode.push_back("pop edx");
+        compiledCode.push_back("push rdx");
+        compiledCode.push_back("mul rbx");
+        compiledCode.push_back("pop rdx");
     }, compiledCode)) return;
 
     if(var.rfind("++", 0) == 0 || var.rfind("--", 0) == 0) {
@@ -403,11 +403,11 @@ int calculateIndentation(std::string line)
 void writeFunctionExit(std::vector<std::string> &compiledCode)
 {
     if(compiledCode.back() == "ret") return;
-    compiledCode.push_back("push eax");
-    compiledCode.push_back("mov eax, ebp");
+    compiledCode.push_back("push rax");
+    compiledCode.push_back("mov rax, rbp");
     compiledCode.push_back("call free");
-    compiledCode.push_back("pop eax");
-    compiledCode.push_back("pop ebp");
+    compiledCode.push_back("pop rax");
+    compiledCode.push_back("pop rbp");
     compiledCode.push_back("ret");
 }
 
@@ -509,13 +509,13 @@ void compileLine(
             if(trim_copy(line).empty()) continue;
             if(indentation >= calculateIndentation(line)) break;
             std::smatch match;
-            if(std::regex_search(line, match, std::regex("\\{(.*),\\s*(eax|ebx|ecx|edx)}"))) {
+            if(std::regex_search(line, match, std::regex("\\{(.*),\\s*(rax|rbx|rcx|rdx)}"))) {
                 resolve_argument(ctx, match[1], match[2], compiledCode);
-                std::regex_replace(line, std::regex("\\{.*,\\s*(eax|ebx|ecx|edx)\\}"), "$1");
+                std::regex_replace(line, std::regex("\\{.*,\\s*(rax|rbx|rcx|rdx)\\}"), "$1");
             }
-            if(std::regex_search(line, match, std::regex("\\[(.*),\\s*(eax|ebx|ecx|edx)]"))) {
+            if(std::regex_search(line, match, std::regex("\\[(.*),\\s*(rax|rbx|rcx|rdx)]"))) {
                 resolve_argument_a(ctx, match[1], match[2], compiledCode);
-                std::regex_replace(line, std::regex("\\[[^\\[\\]]*,\\s*(eax|ebx|ecx|edx)\\]"), "$1");
+                std::regex_replace(line, std::regex("\\[[^\\[\\]]*,\\s*(rax|rbx|rcx|rdx)\\]"), "$1");
             }
             trim(line);
             if(line == "O0") compiledCode.push_back(";arsenic_o0");
@@ -527,44 +527,44 @@ void compileLine(
     }
     std::smatch match;
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*=\\s*(.+)"))) {
-        compiledCode.push_back("push eax");
-        compiledCode.push_back("push ebx");
+        compiledCode.push_back("push rax");
+        compiledCode.push_back("push rbx");
 
-        resolve_argument_a(ctx, match[1], "eax", compiledCode);
-        resolve_argument(ctx, match[2], "ebx", compiledCode);
+        resolve_argument_a(ctx, match[1], "rax", compiledCode);
+        resolve_argument(ctx, match[2], "rbx", compiledCode);
 
-        compiledCode.push_back("mov [eax], ebx");
+        compiledCode.push_back("mov [rax], rbx");
 
-        compiledCode.push_back("pop ebx");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("pop rbx");
+        compiledCode.push_back("pop rax");
 
         if(match[1] == "return") writeFunctionExit(compiledCode);
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*>\\s*(.+)"))) {
-        compiledCode.push_back("push eax");
-        compiledCode.push_back("push ebx");
+        compiledCode.push_back("push rax");
+        compiledCode.push_back("push rbx");
 
-        resolve_argument_a(ctx, match[1], "eax", compiledCode);
-        resolve_argument_p(ctx, match[2], "ebx", compiledCode, definitions);
+        resolve_argument_a(ctx, match[1], "rax", compiledCode);
+        resolve_argument_p(ctx, match[2], "rbx", compiledCode, definitions);
 
-        compiledCode.push_back("mov [eax], ebx");
+        compiledCode.push_back("mov [rax], rbx");
 
-        compiledCode.push_back("pop ebx");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("pop rbx");
+        compiledCode.push_back("pop rax");
 
         if(match[1] == "return") writeFunctionExit(compiledCode);
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*<\\s*(.+)"))) {
-        compiledCode.push_back("push eax");
-        compiledCode.push_back("push ebx");
+        compiledCode.push_back("push rax");
+        compiledCode.push_back("push rbx");
 
-        resolve_argument_i(ctx, match[1], "eax", compiledCode);
-        resolve_argument(ctx, match[2], "ebx", compiledCode);
+        resolve_argument_i(ctx, match[1], "rax", compiledCode);
+        resolve_argument(ctx, match[2], "rbx", compiledCode);
 
-        compiledCode.push_back("mov [eax], ebx");
+        compiledCode.push_back("mov [rax], rbx");
 
-        compiledCode.push_back("pop ebx");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("pop rbx");
+        compiledCode.push_back("pop rax");
     }
 
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*:"))) {
@@ -580,14 +580,14 @@ void compileLine(
 
         compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
         compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
-        compiledCode.push_back("push ebp");
-        compiledCode.push_back("push eax");
-        compiledCode.push_back(string_format("mov eax, %d", 4 * functionVars.size()));
+        compiledCode.push_back("push rbp");
+        compiledCode.push_back("push rax");
+        compiledCode.push_back(string_format("mov rax, %d", 8 * functionVars.size()));
         compiledCode.push_back("call malloc");
-        compiledCode.push_back("mov [eax], ebp");
-        compiledCode.push_back("mov [eax+4], ebx");
-        compiledCode.push_back("mov ebp, eax");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("mov [rax], rbp");
+        compiledCode.push_back("mov [rax+8], rbx");
+        compiledCode.push_back("mov rbp, rax");
+        compiledCode.push_back("pop rax");
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
@@ -602,19 +602,19 @@ void compileLine(
     }
 
     if(std::regex_match(line, match, std::regex("delete\\s+([^\\s]+)"))) {
-        compiledCode.push_back("push eax");
-        resolve_argument_i(ctx, match[1], "eax", compiledCode);
+        compiledCode.push_back("push rax");
+        resolve_argument_i(ctx, match[1], "rax", compiledCode);
         compiledCode.push_back("call free");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("pop rax");
     }
 
     if(std::regex_match(line, match, std::regex("if\\s+([^\\s].+)\\s*:"))) {
         std::string ifLabel = allocateLabel(string_format("%s_cif", ctx->name.c_str()), ctx);
         compiledCode.push_back(string_format("%s:", ifLabel.c_str()));
-        compiledCode.push_back("push eax");
-        resolve_argument(ctx, match[1], "eax", compiledCode);
-        compiledCode.push_back("cmp eax, 0");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("push rax");
+        resolve_argument(ctx, match[1], "rax", compiledCode);
+        compiledCode.push_back("cmp rax, 0");
+        compiledCode.push_back("pop rax");
         compiledCode.push_back(string_format("jz %s", string_format("%s_cel", ifLabel.c_str())));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
@@ -643,10 +643,10 @@ void compileLine(
     if(std::regex_match(line, match, std::regex("while\\s+([^\\s].+)\\s*:"))) {
         std::string whileLabel = allocateLabel(string_format("%s_cwhile", ctx->name.c_str()), ctx);
         compiledCode.push_back(string_format("%s:", whileLabel.c_str()));
-        compiledCode.push_back("push eax");
-        resolve_argument(ctx, match[1], "eax", compiledCode);
-        compiledCode.push_back("cmp eax, 0");
-        compiledCode.push_back("pop eax");
+        compiledCode.push_back("push rax");
+        resolve_argument(ctx, match[1], "rax", compiledCode);
+        compiledCode.push_back("cmp rax, 0");
+        compiledCode.push_back("pop rax");
         compiledCode.push_back(string_format("jz %s", string_format("%s_e", whileLabel.c_str())));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
@@ -680,24 +680,24 @@ void compileLine(
             std::transform(args.begin(), args.end(), args.begin(), [](std::string arg) {
                 return trim_copy(arg);
             });
-            compiledCode.push_back("push ebx");
-            compiledCode.push_back("push eax");
-            compiledCode.push_back(string_format("mov eax, %d", 4 * args.size()));
+            compiledCode.push_back("push rbx");
+            compiledCode.push_back("push rax");
+            compiledCode.push_back(string_format("mov rax, %d", 8 * args.size()));
             compiledCode.push_back("call malloc");
             for(std::size_t i = 0; i < args.size(); i++) {
-                resolve_argument(ctx, args[i], "ebx", compiledCode);
-                compiledCode.push_back(string_format("mov [eax + %d], ebx", 4 * i));
+                resolve_argument(ctx, args[i], "rbx", compiledCode);
+                compiledCode.push_back(string_format("mov [rax + %d], rbx", 8 * i));
             }
-            compiledCode.push_back("mov ebx, eax");
-            compiledCode.push_back("pop eax");
+            compiledCode.push_back("mov rbx, rax");
+            compiledCode.push_back("pop rax");
         }
         compiledCode.push_back(string_format("call %s", functionLabel.c_str()));
         if(args.size() > 0) {
-            compiledCode.push_back("push eax");
-            compiledCode.push_back("mov ebx, eax");
+            compiledCode.push_back("push rax");
+            compiledCode.push_back("mov rbx, rax");
             compiledCode.push_back("call free");
-            compiledCode.push_back("pop eax");
-            compiledCode.push_back("pop ebx");
+            compiledCode.push_back("pop rax");
+            compiledCode.push_back("pop rbx");
         }
     }
 

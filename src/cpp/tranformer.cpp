@@ -1,16 +1,18 @@
 #include "transformer.h"
 
 std::string matOps = "mov|add|sub|mul|div|and|or|xor|not|shl|shr|rol|ror";
-std::string regs = "e?(?:[a-d](?:l|h|x)|(?:si|di|bp|sp)l?|ss|cs|ds|es|fs|gs)";
+std::string regs = "(r|e)?(?:[a-d](?:l|h|x)|(?:si|di|bp|sp)l?|ss|cs|ds|es|fs|gs)";
 
 std::string get_full_reg(std::string reg) {
-    if(reg[0] == 'e') return reg;
-    if(reg[1] == 'h') return string_format("e%cx", reg[0]);
-    if(reg.size() == 3 && reg[2] == 'l') return "e" + reg.substr(0, reg.size()-1);
-    return "e" + reg;
+    if(reg[0] == 'r') return reg;
+    if(reg[0] == 'e') return "r" + reg.substr(1);
+    if(reg[1] == 'h') return string_format("r%cx", reg[0]);
+    if(reg.size() == 3 && reg[2] == 'l') return "r" + reg.substr(0, reg.size()-1);
+    return "r" + reg;
 }
 
 std::string get_mask(std::string reg) {
+    if(reg[0] == 'r') return "0xFFFFFFFFFFFFFFFF";
     if(reg[0] == 'e') return "0xFFFFFFFF";
     if(reg.back() == 'l' || reg.back() == 'h') return "0xFF";
     return "0xFFFF";
@@ -61,19 +63,19 @@ int transform_code(std::vector<std::string> &lines) {
             //     transformedLines.push_back(string_format("%s %s, %s", op.c_str(), dst.c_str(), match[1].c_str()));
             // } // Could cause problems with cases where vars are expected to stay in `src`
             if(op == "mov" && dst[0] == '[' && src[0] <= '9') {
-                transformedLines.push_back(string_format("mov %s, dword %s", dst.c_str(), src.c_str()));
+                transformedLines.push_back(string_format("mov %s, qword %s", dst.c_str(), src.c_str()));
                 numTransformations++;
                 continue;
             }
 
-            if(op == "mov" && src[0] != 'e' && std::regex_match(src, std::regex(regs))) {
+            if(op == "mov" && src[0] != 'r' && std::regex_match(src, std::regex(regs))) {
                 transformedLines.push_back(string_format("mov %s, %s", dst.c_str(), get_full_reg(src).c_str()));
                 transformedLines.push_back(string_format("and %s, %s", dst.c_str(), get_mask(src).c_str()));
                 numTransformations++;
                 continue;
             }
 
-            if(op == "mov" && dst[0] != 'e' && std::regex_match(dst, std::regex(regs))) {
+            if(op == "mov" && dst[0] != 'r' && std::regex_match(dst, std::regex(regs))) {
                 transformedLines.push_back(string_format("mov %s, %s", get_full_reg(dst).c_str(), src.c_str()));
                 transformedLines.push_back(string_format("and %s, %s", get_full_reg(dst).c_str(), get_mask(dst).c_str()));
                 numTransformations++;
