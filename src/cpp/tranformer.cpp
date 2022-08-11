@@ -27,10 +27,12 @@ bool lookahead(std::string line, std::vector<std::string> lines, int i) {
 }
 
 int transform_code(std::vector<std::string> &lines) {
+    if(lines.size() < 3) return 0;
     std::vector<std::string> transformedLines;
     int numTransformations = 0;
     bool optimizationEnabled = true;
     std::vector<std::string> removedPops;
+    transformedLines.push_back(lines[0]);
     for(std::size_t i = 1; i < lines.size() - 1; i++) {
         std::string line = lines[i];
         if(!optimizationEnabled) {
@@ -112,6 +114,7 @@ int transform_code(std::vector<std::string> &lines) {
 
         transformedLines.push_back(line);
     }
+    transformedLines.push_back(lines[lines.size()-1]);
 
     if(removedPops.size()) {
         std::cerr << "Error: stack is likely corrupted after optimization! (Please debug the program)" << std::endl;

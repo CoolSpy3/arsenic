@@ -61,16 +61,30 @@ void resolve_argument_i(
     int numParents = 0
 ) {
     trim(var);
-    std::smatch structMatch;
-    if(std::regex_match(var, structMatch, std::regex("\\(\\s*\\(\\s*struct \\s*(.+)\\s*\\)\\s*(\\w+)\\s*\\)\\.(\\w+)"))) {
-        std::string structName = structMatch[1];
-        std::string structVar = structMatch[2];
-        std::string structMember = structMatch[3];
+    std::smatch match;
+    if(std::regex_match(var, match, std::regex("\\(\\s*\\(\\s*struct \\s*(.+)\\s*\\)\\s*(\\w+)\\s*\\)\\.(\\w+)"))) {
+        std::string structName = match[1];
+        std::string structVar = match[2];
+        std::string structMember = match[3];
         Struct_ struct_ = findStruct(ctx, structName);
         int memberOffset = struct_.members.find(structMember)->second;
         resolve_argument_a(ctx, structVar, reg, compiledCode);
         compiledCode.push_back(string_format("add %s, %d", reg.c_str(), memberOffset));
         compiledCode.push_back(string_format("mov %s, [%s]", reg.c_str()));
+        return;
+    }
+    if(std::regex_match(var, match, std::regex("faddr\\(\\s*(\\w+)\\s*\\)"))) {
+        std::string functionName = match[1];
+
+        std::shared_ptr<Context> searchCtx = ctx;
+        std::map<std::string, std::string>::iterator functionLabelIttr;
+        do {
+            if((functionLabelIttr = searchCtx->functions.find(functionName)) != searchCtx->functions.end()) break;
+            searchCtx = searchCtx->parent;
+        } while(searchCtx);
+
+        std::string functionLabel = functionLabelIttr->second;
+        compiledCode.push_back(string_format("lea %s, [%s]", reg.c_str(), functionLabel.c_str()));
         return;
     }
     if(('0' <= var[0] && var[0] <= '9') || var[0] == '\'') {
@@ -501,7 +515,14 @@ void compileLine(
     int indentation = calculateIndentation(line);
     trim(line);
     if(line.empty()) return;
-    if(std::regex_match(line, std::regex("asm\\s*:"))) {
+    std::smatch match;
+    if(std::regex_match(line, match, std::regex("asm\\s*(?:([^\\s]+)\\s*):"))) {
+        std::string functionName, functionLabel;
+        if(match.size() > 1) {
+            functionName = match[1];
+            std::string functionLabel = string_format("%s_f%s", ctx->name.c_str(), string_replace(functionName, std::string("_"), std::string("__")).c_str());
+        }
+        ctx->functions.emplace(functionName, functionLabel);
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
@@ -522,10 +543,10 @@ void compileLine(
             else if(line == "O1") compiledCode.push_back(";arsenic_o1");
             else compiledCode.push_back(line);
         }
+        if(!functionLabel.empty()) compiledCode.push_back(string_format("%s_e:", functionLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
-    std::smatch match;
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*=\\s*(.+)"))) {
         compiledCode.push_back("push rax");
         compiledCode.push_back("push rbx");
@@ -569,8 +590,7 @@ void compileLine(
 
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*:"))) {
         std::string functionName = match[1];
-        string_replace(functionName, std::string("_"), std::string("__"));
-        std::string functionLabel = string_format("%s_f%s", ctx->name.c_str(), functionName.c_str());
+        std::string functionLabel = string_format("%s_f%s", ctx->name.c_str(), string_replace(functionName, std::string("_"), std::string("__")).c_str());
 
         ctx->functions.emplace(functionName, functionLabel);
 

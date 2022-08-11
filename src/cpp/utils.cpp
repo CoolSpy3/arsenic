@@ -14,12 +14,13 @@ bool matchingBrackets(std::string str) {
     return brackets.size() == 0;
 }
 
-void string_replace(std::string str, std::string search, std::string replace) {
+std::string string_replace(std::string str, std::string search, std::string replace) {
     size_t pos = 0;
     while ((pos = str.find(search, pos)) != std::string::npos) {
         str.replace(pos, search.length(), replace);
         pos += replace.length();
     }
+    return str;
 }
 
 std::size_t find_not_in_brackets(std::string str, std::string find) {
