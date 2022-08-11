@@ -521,8 +521,10 @@ void compileLine(
         if(match.size() > 1) {
             functionName = match[1];
             std::string functionLabel = string_format("%s_f%s", ctx->name.c_str(), string_replace(functionName, std::string("_"), std::string("__")).c_str());
+            ctx->functions.emplace(functionName, functionLabel);
+            compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
+            compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
         }
-        ctx->functions.emplace(functionName, functionLabel);
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
