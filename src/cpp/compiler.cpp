@@ -105,6 +105,10 @@ void resolve_argument_i(
             exit(1);
         }
     } else {
+        if(std::count(ctx->constants.begin(), ctx->constants.end(), var)) {
+            compiledCode.push_back(string_format("mov %s, %s_v%s", reg.c_str(), ctx->name.c_str(), var.c_str()));
+            return;
+        }
         if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
         compiledCode.push_back("mov rax, [rbp]");
         if(var == ".ret") compiledCode.push_back("mov rax, [rax]");
@@ -549,6 +553,13 @@ void compileLine(
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
+    if(std::regex_match(line, match, std::regex("const\\s+([^\\s]+)\\s*=\\s*(.+);"))) {
+        std::string varName = match[1];
+        std::string varValue = match[2];
+        ctx->constants.push_back(varName);
+        definitions.push_back(string_format("%s_v%s equ %s", ctx->name.c_str(), varName.c_str(), varValue.c_str()));
+        return;
+    }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*=\\s*(.+)"))) {
         compiledCode.push_back("push rax");
         compiledCode.push_back("push rbx");
@@ -562,6 +573,7 @@ void compileLine(
         compiledCode.push_back("pop rax");
 
         if(match[1] == "return") writeFunctionExit(compiledCode);
+        return;
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*>\\s*(.+)"))) {
         compiledCode.push_back("push rax");
@@ -576,6 +588,7 @@ void compileLine(
         compiledCode.push_back("pop rax");
 
         if(match[1] == "return") writeFunctionExit(compiledCode);
+        return;
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*<\\s*(.+)"))) {
         compiledCode.push_back("push rax");
@@ -588,6 +601,7 @@ void compileLine(
 
         compiledCode.push_back("pop rbx");
         compiledCode.push_back("pop rax");
+        return;
     }
 
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*:"))) {
@@ -598,7 +612,7 @@ void compileLine(
 
         std::vector<std::string> functionVars = preprocessFunction(ctx, indentation, getLine, file);
 
-        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root});
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root});
 
         compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
         compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
@@ -621,6 +635,7 @@ void compileLine(
         writeFunctionExit(compiledCode);
         compiledCode.push_back(string_format("%s_e:", functionLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        return;
     }
 
     if(std::regex_match(line, match, std::regex("delete\\s+([^\\s]+)"))) {
@@ -628,6 +643,7 @@ void compileLine(
         resolve_argument_i(ctx, match[1], "rax", compiledCode);
         compiledCode.push_back("call free");
         compiledCode.push_back("pop rax");
+        return;
     }
 
     if(std::regex_match(line, match, std::regex("if\\s+([^\\s].+)\\s*:"))) {
@@ -660,6 +676,7 @@ void compileLine(
         } else compiledCode.push_back(string_format("%s_cel:", ifLabel.c_str()));
         compiledCode.push_back(string_format("%s_e:", ifLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        return;
     }
 
     if(std::regex_match(line, match, std::regex("while\\s+([^\\s].+)\\s*:"))) {
@@ -681,6 +698,7 @@ void compileLine(
         }
         compiledCode.push_back(string_format("%s_e:", whileLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        return;
     }
 
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*\\((.*)\\)"))) {
@@ -721,10 +739,17 @@ void compileLine(
             compiledCode.push_back("pop rax");
             compiledCode.push_back("pop rbx");
         }
+        return;
     }
 
-    if(line == "O0") compiledCode.push_back(";arsenic_o0");
-    if(line == "O1") compiledCode.push_back(";arsenic_o1");
+    if(line == "O0") {
+        compiledCode.push_back(";arsenic_o0");
+        return;
+    }
+    if(line == "O1") {
+        compiledCode.push_back(";arsenic_o1");
+        return;
+    }
 
     if(line.rfind("struct ", 0) == 0) {
         std::vector<std::string> tokens = split(line, ' ');
@@ -753,5 +778,6 @@ void compileLine(
         }
 
         struct_.size = size;
+        return;
     }
 }

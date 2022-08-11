@@ -123,7 +123,7 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    Context rootCtx = Context{"arsenic", std::vector<std::string>(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), nullptr, nullptr};
+    Context rootCtx = Context{"arsenic", std::vector<std::string>(), std::vector<std::string>(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), nullptr, nullptr};
     rootCtx.root = std::make_shared<Context>(rootCtx);
 
     rootCtx.variables.push_back(".spr");
