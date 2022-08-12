@@ -36,23 +36,43 @@ void compileFile(
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
         return std::unique_ptr<std::string>(std::getline(file, line) ? new std::string(remove_comments(line)) : nullptr);
     };
-    while (std::getline(file, line)) compileLine(ctx, line, getLine, compiledCode, definitions, file);
+    while (std::getline(file, line)) compileLine(ctx, remove_comments(line), getLine, compiledCode, definitions, file);
     file.close();
 }
 
 void preprocessFile(
     std::shared_ptr<Context> ctx,
     std::string fileName,
-    std::vector<std::string> &variables
+    std::map<std::string, Variable> &variables,
+    std::vector<std::string> &definitions
 ) {
     std::ifstream file(fileName);
     std::string line;
     std::function<std::unique_ptr<std::string>()> getLine = [&]() {
         return std::unique_ptr<std::string>(std::getline(file, line) ? new std::string(remove_comments(line)) : nullptr);
     };
-    std::vector<std::string> nVariables;
-    while (std::getline(file, line)) preprocessFunction(ctx, 0, getLine, file);
-    variables.insert(variables.end(), nVariables.begin(), nVariables.end());
+    while (std::getline(file, line)) {
+        line = remove_comments(line);
+        trim(line);
+        std::smatch match;
+        if(std::regex_match(line, match, std::regex("const\\s+([^\\s]+)\\s*=\\s*(.+)"))) {
+            std::string varName = match[1];
+            std::string varValue = match[2];
+            variables.emplace(varName, constVar(varName));
+            definitions.push_back(string_format("%s_v%s equ %s", ctx->name.c_str(), varName.c_str(), varValue.c_str()));
+            return;
+        }
+        if(std::regex_match(line, match, std::regex("global\\s+([^\\s]+)"))) {
+            std::string varName = match[1];
+            variables.emplace(varName, globalVar(varName));
+            definitions.push_back(string_format("%s_v%s dq 0", ctx->name.c_str(), varName.c_str()));
+            return;
+        }
+    }
+    file.clear();
+    file.seekg(0);
+    std::map<std::string, Variable> nVariables = preprocessFunction(ctx, 0, getLine, file);
+    variables.insert(nVariables.begin(), nVariables.end());
     file.close();
 }
 
@@ -123,12 +143,8 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    Context rootCtx = Context{"arsenic", std::vector<std::string>(), std::vector<std::string>(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), nullptr, nullptr};
+    Context rootCtx = Context{"arsenic", defaultVars(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), nullptr, nullptr, 0};
     rootCtx.root = std::make_shared<Context>(rootCtx);
-
-    rootCtx.variables.push_back(".spr");
-    rootCtx.variables.push_back(".arg");
-    rootCtx.variables.push_back(".ret");
 
     includePath.push_back(".");
 
@@ -175,12 +191,11 @@ int main(int argc, char **argv)
         makefile.close();
     }
 
-    for(std::string file: inputFiles) preprocessFile(rootCtx.root, file, rootCtx.variables);
-
     std::vector<std::string> compiledCode, definitions;
 
+    for(std::string file: inputFiles) preprocessFile(rootCtx.root, file, rootCtx.variables, definitions);
+
     for(std::string file: inputFiles) compileFile(rootCtx.root, file, compiledCode, definitions);
-    compiledCode.insert(compiledCode.begin(), definitions.begin(), definitions.end());
 
     while(transform_code(compiledCode));
 
@@ -197,20 +212,17 @@ int main(int argc, char **argv)
         os << "pushaq" << std::endl;
         os << "pushfq" << std::endl;
 
-        os << "push rbp" << std::endl;
-        os << string_format("mov rax, %d", 8 * rootCtx.variables.size()) << std::endl;
-        os << "call malloc" << std::endl;
-        os << "mov rbp, rax" << std::endl;
+        os << string_format("enter %d, 0", 8 * stackVars(rootCtx.variables)) << std::endl;
 
         for (std::string line : compiledCode) os << line << std::endl;
 
-        os << "mov rax, rbp" << std::endl;
-        os << "call free" << std::endl;
-        os << "pop rbp" << std::endl;
+        os << "leave" << std::endl;
 
         os << "popfq" << std::endl;
         os << "popaq" << std::endl;
         os << "ret" << std::endl;
+
+        for (std::string line : definitions) os << line << std::endl;
 
         os.close();
     }

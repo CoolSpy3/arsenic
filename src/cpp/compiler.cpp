@@ -1,7 +1,5 @@
 #include "compiler.h"
 
-#define CHECK_SPECIAL_VARS(var) var == "args" ? ".arg" : var == "return" ? ".ret" : var
-
 Struct_ findStruct(std::shared_ptr<Context> ctx, std::string name) {
     do {
         if(ctx->structs.count(name)) return ctx->structs.find(name)->second;
@@ -14,6 +12,8 @@ Struct_ findStruct(std::shared_ptr<Context> ctx, std::string name) {
 bool reg_match(std::string reg, char match) {
     return std::regex_match(reg, std::regex(string_format("r?%c(l|h|x)", match)));
 }
+
+#define CHECK_SPECIAL_VARS(name) name == "args" ? ".arg" : name == "return" ? ".ret" : name
 
 void resolve_argument_a(
     std::shared_ptr<Context> ctx,
@@ -34,7 +34,7 @@ void resolve_argument_a(
         return;
     }
     var = CHECK_SPECIAL_VARS(var);
-    std::vector<std::string>::iterator it = std::find(ctx->variables.begin(), ctx->variables.end(), var);
+    std::map<std::string, Variable>::iterator it = ctx->variables.find(var);
     if(it == ctx->variables.end()) {
         if(ctx->parent) {
             resolve_argument_a(ctx->parent, var, reg, compiledCode, numParents + 1);
@@ -43,13 +43,7 @@ void resolve_argument_a(
             exit(1);
         }
     } else {
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
-        compiledCode.push_back("mov rax, [rbp]");
-        if(var == ".ret") compiledCode.push_back("mov rax, [rax]");
-        for(int i = 0; i < numParents; i++) compiledCode.push_back("mov rax, [rax]");
-        compiledCode.push_back(string_format("add rax, %d", 8 * std::distance(ctx->variables.begin(), it)));
-        compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
-        if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
+        it->second.getAddr(ctx, var, reg, compiledCode, numParents, std::distance(ctx->variables.begin(), it));
     }
 }
 
@@ -96,7 +90,7 @@ void resolve_argument_i(
         return;
     }
     var = CHECK_SPECIAL_VARS(var);
-    std::vector<std::string>::iterator it = std::find(ctx->variables.begin(), ctx->variables.end(), var);
+    std::map<std::string, Variable>::iterator it = ctx->variables.find(var);
     if(it == ctx->variables.end()) {
         if(ctx->parent) {
             resolve_argument_i(ctx->parent, var, reg, compiledCode, numParents + 1);
@@ -105,17 +99,7 @@ void resolve_argument_i(
             exit(1);
         }
     } else {
-        if(std::count(ctx->constants.begin(), ctx->constants.end(), var)) {
-            compiledCode.push_back(string_format("mov %s, %s_v%s", reg.c_str(), ctx->name.c_str(), var.c_str()));
-            return;
-        }
-        if(!reg_match(reg, 'a')) compiledCode.push_back("push rax");
-        compiledCode.push_back("mov rax, [rbp]");
-        if(var == ".ret") compiledCode.push_back("mov rax, [rax]");
-        for(int i = 0; i < numParents; i++) compiledCode.push_back("mov rax, [rax]");
-        compiledCode.push_back(string_format("mov rax, [rax+%d]", 8 * std::distance(ctx->variables.begin(), it)));
-        compiledCode.push_back(string_format("mov %s, rax", reg.c_str()));
-        if(!reg_match(reg, 'a')) compiledCode.push_back("pop rax");
+        it->second.getValue(ctx, var, reg, compiledCode, numParents, std::distance(ctx->variables.begin(), it));
     }
 }
 
@@ -418,27 +402,13 @@ int calculateIndentation(std::string line)
     return indentation;
 }
 
-void writeFunctionExit(std::vector<std::string> &compiledCode)
-{
-    if(compiledCode.back() == "ret") return;
-    compiledCode.push_back("push rax");
-    compiledCode.push_back("mov rax, rbp");
-    compiledCode.push_back("call free");
-    compiledCode.push_back("pop rax");
-    compiledCode.push_back("pop rbp");
-    compiledCode.push_back("ret");
-}
-
-std::vector<std::string> preprocessFunction(
+std::map<std::string, Variable> preprocessFunction(
     std::shared_ptr<Context> ctx,
     int indentation,
     std::function<std::unique_ptr<std::string>()> getLine,
     std::ifstream &file
 ) {
-    std::vector<std::string> variables;
-    variables.push_back(".spr");
-    variables.push_back(".arg");
-    variables.push_back(".ret");
+    std::map<std::string, Variable> variables = defaultVars();
     int posBkp = file.tellg();
 
     for(;;) {
@@ -461,32 +431,32 @@ std::vector<std::string> preprocessFunction(
         trim(line);
         std::smatch varMatch;
         if(std::regex_match(line, varMatch, std::regex("([^\\s]+)\\s*(=|<|>)\\s*.+"))) {
-            std::string var = varMatch[1];
-            if(var[0] <= '9') continue;
-            if(var == "return" || var == "args") continue;
+            std::string name = varMatch[1];
+            if(name[0] <= '9') continue;
+            if(name == "return" || name == "args") continue;
             Context superCtx = *ctx;
             if(superCtx.parent == nullptr) {
-                variables.push_back(var);
+                variables.emplace(name, var(name));
                 break;
             } else {
                 while(superCtx.parent) {
-                    if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
+                    if(superCtx.variables.count(name)) break;
                     if(superCtx.parent == nullptr) {
-                        variables.push_back(var);
+                        variables.emplace(name, var(name));
                         break;
                     }
                     superCtx = *superCtx.parent;
                 }
             }
         } else if (std::regex_match(line, varMatch, std::regex("\\[[^\\s]+\\]"))) {
-            std::string var = varMatch[1];
-            if(var[0] <= '9') continue;
-            if(var == "return" || var == "args") continue;
+            std::string name = varMatch[1];
+            if(name[0] <= '9') continue;
+            if(name == "return" || name == "args") continue;
             Context superCtx = *ctx;
             while(superCtx.parent) {
-                if(std::count(superCtx.variables.begin(), superCtx.variables.end(), var)) break;
+                if(superCtx.variables.count(name)) break;
                 if(superCtx.parent == nullptr) {
-                    variables.push_back(var);
+                    variables.emplace(name, var(name));
                     break;
                 }
                 superCtx = *superCtx.parent;
@@ -506,6 +476,87 @@ std::string allocateLabel(
     int i = 0;
     while(ctx->functions.count(requestedName + std::to_string(i))) i++;
     return requestedName + std::to_string(i);
+}
+
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getArgAddr =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, rbp", reg.c_str()));
+        compiledCode.push_back(string_format("sub %s, %d", reg.c_str(),  8 * (ctx->depth + 2)));
+    };
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getArgValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(),  8 * (ctx->depth + 2)));
+    };
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getRetAddr =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * ctx->depth));
+        compiledCode.push_back(string_format("sub %s, rbp-%d", reg.c_str(), 8 * (ctx->depth + 1 + 1)));
+    };
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getRetValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 2 + 1)));
+    };
+
+std::map<std::string, Variable> defaultVars() {
+    std::map<std::string, Variable> vars;
+    vars.emplace(".arg", Variable{".arg", getArgAddr, getArgValue});
+    vars.emplace(".ret", Variable{".ret", getRetAddr, getRetValue});
+    return vars;
+}
+
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getDefaultAddr =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        if(numParents != 0) {
+            compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 1)));
+        } else {
+            compiledCode.push_back(string_format("mov %s, rbp", reg.c_str()));
+        }
+        compiledCode.push_back(string_format("sub %s, %d", reg.c_str(),  8 * (ctx->depth + 2 + pos)));
+    };
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getDefaultValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        if(numParents != 0) {
+            compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 1)));
+            compiledCode.push_back(string_format("mov %s, [%s-%d]", reg.c_str(), reg.c_str(), 8 * (ctx->depth + 2 + pos)));
+        } else {
+            compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 2 + pos)));
+        }
+    };
+
+Variable var(std::string name) {
+    return Variable{name, getDefaultAddr, getDefaultValue};
+}
+
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getConstAddr =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, 0", reg.c_str()));
+    };
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getConstValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, %s_v%s", reg.c_str(), ctx->name.c_str(), var.c_str()));
+    };
+
+Variable constVar(std::string name) {
+    return Variable{name, getConstAddr, getConstAddr, false};
+}
+
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getGlobalAddr =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("lea %s, [%s_v%s]", reg.c_str(), ctx->name.c_str(), var.c_str()));
+    };
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getGlobalValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+        compiledCode.push_back(string_format("mov %s, [%s_v%s]", reg.c_str(), ctx->name.c_str(), var.c_str()));
+    };
+
+Variable globalVar(std::string name) {
+    return Variable{name, getGlobalAddr, getGlobalValue};
+}
+
+int stackVars(std::map<std::string, Variable> vars) {
+    int stackVars = 0;
+    for(std::pair<std::string, Variable> var : vars) if(var.second.onStack) stackVars++;
+    return stackVars;
 }
 
 void compileLine(
@@ -553,13 +604,6 @@ void compileLine(
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
-    if(std::regex_match(line, match, std::regex("const\\s+([^\\s]+)\\s*=\\s*(.+);"))) {
-        std::string varName = match[1];
-        std::string varValue = match[2];
-        ctx->constants.push_back(varName);
-        definitions.push_back(string_format("%s_v%s equ %s", ctx->name.c_str(), varName.c_str(), varValue.c_str()));
-        return;
-    }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*=\\s*(.+)"))) {
         compiledCode.push_back("push rax");
         compiledCode.push_back("push rbx");
@@ -572,7 +616,10 @@ void compileLine(
         compiledCode.push_back("pop rbx");
         compiledCode.push_back("pop rax");
 
-        if(match[1] == "return") writeFunctionExit(compiledCode);
+        if(match[1] == "return") {
+            compiledCode.push_back("leave");
+            compiledCode.push_back("ret");
+        }
         return;
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*>\\s*(.+)"))) {
@@ -587,7 +634,10 @@ void compileLine(
         compiledCode.push_back("pop rbx");
         compiledCode.push_back("pop rax");
 
-        if(match[1] == "return") writeFunctionExit(compiledCode);
+        if(match[1] == "return") {
+            compiledCode.push_back("leave");
+            compiledCode.push_back("ret");
+        }
         return;
     }
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*<\\s*(.+)"))) {
@@ -610,20 +660,14 @@ void compileLine(
 
         ctx->functions.emplace(functionName, functionLabel);
 
-        std::vector<std::string> functionVars = preprocessFunction(ctx, indentation, getLine, file);
+        std::map<std::string, Variable> functionVars = preprocessFunction(ctx, indentation, getLine, file);
 
-        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::vector<std::string>(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root});
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root, ctx->depth + 1});
 
         compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
         compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
-        compiledCode.push_back("push rbp");
-        compiledCode.push_back("push rax");
-        compiledCode.push_back(string_format("mov rax, %d", 8 * functionVars.size()));
-        compiledCode.push_back("call malloc");
-        compiledCode.push_back("mov [rax], rbp");
-        compiledCode.push_back("mov [rax+8], rbx");
-        compiledCode.push_back("mov rbp, rax");
-        compiledCode.push_back("pop rax");
+        compiledCode.push_back(string_format("enter %d, %d", 8 * stackVars(functionVars), ctx->depth));
+        compiledCode.push_back(string_format("mov [rbp-%d], ebx", 8 * (ctx->depth + 2)));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
@@ -632,9 +676,18 @@ void compileLine(
             if(indentation >= calculateIndentation(line)) break;
             compileLine(nCtx, line, getLine, compiledCode, definitions, file);
         }
-        writeFunctionExit(compiledCode);
+        if(compiledCode.back() != "ret") {
+            compiledCode.push_back("leave");
+            compiledCode.push_back("ret");
+        }
         compiledCode.push_back(string_format("%s_e:", functionLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
+        return;
+    }
+
+    if(line == "return") {
+        compiledCode.push_back("leave");
+        compiledCode.push_back("ret");
         return;
     }
 
@@ -704,14 +757,21 @@ void compileLine(
     if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*\\((.*)\\)"))) {
         std::string functionName = match[1];
 
-        std::shared_ptr<Context> searchCtx = ctx;
-        std::map<std::string, std::string>::iterator functionLabelIttr;
-        do {
-            if((functionLabelIttr = searchCtx->functions.find(functionName)) != searchCtx->functions.end()) break;
-            searchCtx = searchCtx->parent;
-        } while(searchCtx);
+        std::string functionLabel;
 
-        std::string functionLabel = functionLabelIttr->second;
+        std::smatch varFuncMatch;
+        if(std::regex_match(functionName, varFuncMatch, std::regex("\\(\\s*\\(\\s*func\\s*\\)\\s*(.*)\\)"))) {
+            resolve_argument_i(ctx, varFuncMatch[1], "rdx", compiledCode);
+        } else {
+            std::shared_ptr<Context> searchCtx = ctx;
+            std::map<std::string, std::string>::iterator functionLabelIttr;
+            do {
+                if((functionLabelIttr = searchCtx->functions.find(functionName)) != searchCtx->functions.end()) break;
+                searchCtx = searchCtx->parent;
+            } while(searchCtx);
+
+            functionLabel = functionLabelIttr->second;
+        }
 
         std::string rawArgs = match[2];
 
@@ -720,25 +780,16 @@ void compileLine(
             std::transform(args.begin(), args.end(), args.begin(), [](std::string arg) {
                 return trim_copy(arg);
             });
-            compiledCode.push_back("push rbx");
-            compiledCode.push_back("push rax");
-            compiledCode.push_back(string_format("mov rax, %d", 8 * args.size()));
-            compiledCode.push_back("call malloc");
+            compiledCode.push_back(string_format("sub rsp, %d", 8 * args.size()));
+            compiledCode.push_back("mov rbx, rsp");
+            compiledCode.push_back("sub rbx, 4");
             for(std::size_t i = 0; i < args.size(); i++) {
-                resolve_argument(ctx, args[i], "rbx", compiledCode);
-                compiledCode.push_back(string_format("mov [rax + %d], rbx", 8 * i));
+                resolve_argument(ctx, args[i], "rax", compiledCode);
+                compiledCode.push_back(string_format("mov [rbx + %d], rax",  8 * (args.size() - i - 1)));
             }
-            compiledCode.push_back("mov rbx, rax");
-            compiledCode.push_back("pop rax");
         }
-        compiledCode.push_back(string_format("call %s", functionLabel.c_str()));
-        if(args.size() > 0) {
-            compiledCode.push_back("push rax");
-            compiledCode.push_back("mov rbx, rax");
-            compiledCode.push_back("call free");
-            compiledCode.push_back("pop rax");
-            compiledCode.push_back("pop rbx");
-        }
+        compiledCode.push_back(string_format("call %s", functionLabel.empty() ? "rdx" : functionLabel.c_str()));
+        if(args.size() > 0) compiledCode.push_back(string_format("add rsp, %d", 8 * args.size()));
         return;
     }
 

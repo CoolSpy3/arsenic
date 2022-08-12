@@ -18,19 +18,19 @@ std::string get_mask(std::string reg) {
     return "0xFFFF";
 }
 
-bool lookahead(std::string line, std::vector<std::string> lines, int i) {
+std::size_t lookahead(std::string line, std::vector<std::string> lines, int i) {
     for(std::size_t j = i; j < lines.size(); j++) {
         if(lines[j] == line) return true;
-        if(lines[j].back() == ':' || lines[j] == "ret") return false;
+        if(lines[j].back() == ':' || lines[j] == "ret") return j;
     }
-    return false;
+    return std::string::npos;
 }
 
 int transform_code(std::vector<std::string> &lines) {
     if(lines.size() < 3) return 0;
     std::vector<std::string> transformedLines;
     int numTransformations = 0;
-    bool optimizationEnabled = true;
+    bool optimizationEnabled = lines[0] != ";arsenic_o0";
     std::vector<std::string> removedPops;
     transformedLines.push_back(lines[0]);
     for(std::size_t i = 1; i < lines.size() - 1; i++) {
@@ -70,6 +70,11 @@ int transform_code(std::vector<std::string> &lines) {
                 continue;
             }
 
+            if(src[0] == '[' || dst[0] == '[') {
+                transformedLines.push_back(line);
+                continue;
+            }
+
             if(op == "mov" && src[0] != 'r' && std::regex_match(src, std::regex(regs))) {
                 transformedLines.push_back(string_format("mov %s, %s", dst.c_str(), get_full_reg(src).c_str()));
                 transformedLines.push_back(string_format("and %s, %s", dst.c_str(), get_mask(src).c_str()));
@@ -85,32 +90,43 @@ int transform_code(std::vector<std::string> &lines) {
             }
         }
 
-        if(std::regex_match(line, match, std::regex(string_format("push (%s)", regs.c_str())))) {
-            std::string reg = match[1];
-            bool regModified = false;
-            for(std::size_t j = i + 1; j < lines.size(); j++) {
-                if(lines[j].back() == ':' || lines[j] == "ret") break;
-                if(line == lines[j]) break;
-                if(lines[j].find(reg) != std::string::npos || lines[j].rfind("int ", 0) == 0 || lines[j].rfind("call ", 0) == 0) {
-                    regModified = true;
-                    break;
-                }
-            }
-            if(regModified) {
-                transformedLines.push_back(line);
-            } else if(lookahead("pop " , lines, i)) {
-                removedPops.push_back("pop " + reg);
-                numTransformations++;
-            }
-            continue;
-        }
+        // Push/pop optimization is currently bugged and will be fixed in the future
+        // if(std::regex_match(line, match, std::regex(string_format("push (%s)", regs.c_str())))) {
+        //     std::string reg = match[1];
+        //     bool regModified = false;
+        //     for(std::size_t j = i + 1; j < lines.size(); j++) {
+        //         if(lines[j].back() == ':' || lines[j] == "ret") break;
+        //         if(line == lines[j]) break;
+        //         if(lines[j].find(reg) != std::string::npos || lines[j].rfind("int ", 0) == 0 || lines[j].rfind("call ", 0) == 0) {
+        //             regModified = true;
+        //             break;
+        //         }
+        //     }
+        //     std::size_t popLoc;
+        //     if(regModified) {
+        //         transformedLines.push_back(line);
+        //     } else if((popLoc = lookahead("pop " + reg , lines, i)) != std::string::npos) {
+        //         for(std::size_t j = popLoc + 1; j < lines.size(); j++) {
+        //             if(lines[j].back() == ':' || lines[j] == "ret") break;
+        //             if(line == lines[j]) break;
+        //             if(lines[j].find(reg) != std::string::npos || lines[j].rfind("int ", 0) == 0 || lines[j].rfind("call ", 0) == 0) {
+        //                 if(std::regex_match(lines[j], std::regex(string_format("mov %s,((?!%s).)*", reg.c_str(), reg.c_str())))) break;
+        //                 regModified = true;
+        //                 break;
+        //             }
+        //         }
+        //         if(regModified) transformedLines.push_back(line);
+        //         else removedPops.push_back("pop " + reg);
+        //         numTransformations++;
+        //     }
+        //     continue;
+        // }
 
-        if(removedPops.size() && removedPops.back() == line) {
-            transformedLines.push_back(removedPops.back());
-            removedPops.pop_back();
-            numTransformations++;
-            continue;
-        }
+        // if(removedPops.size() && removedPops.back() == line) {
+        //     removedPops.pop_back();
+        //     numTransformations++;
+        //     continue;
+        // }
 
         transformedLines.push_back(line);
     }

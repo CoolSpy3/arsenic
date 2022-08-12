@@ -9,7 +9,13 @@
 #include <vector>
 #include "utils.h"
 
-struct Context_;
+struct Context;
+
+struct Variable {
+    std::string name;
+    std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getAddr, getValue;
+    bool onStack = true;
+};
 
 struct Struct_ {
     std::map<std::string, int> members;
@@ -18,10 +24,11 @@ struct Struct_ {
 
 struct Context {
     std::string name;
-    std::vector<std::string> variables, constants;
+    std::map<std::string, Variable> variables;
     std::map<std::string, Struct_> structs;
     std::map<std::string, std::string> functions;
     std::shared_ptr<Context> parent, root;
+    int depth;
 };
 
 void resolve_argument_a(
@@ -65,9 +72,7 @@ void resolve_argument(
     std::vector<std::string> &compiledCode
 );
 
-void writeFunctionExit(std::vector<std::string> &compiledCode);
-
-std::vector<std::string> preprocessFunction(
+std::map<std::string, Variable> preprocessFunction(
     std::shared_ptr<Context> ctx,
     int indentation,
     std::function<std::unique_ptr<std::string>()> getLine,
@@ -78,6 +83,16 @@ std::string allocateLabel(
     std::string requestedName,
     std::shared_ptr<Context> ctx
 );
+
+std::map<std::string, Variable> defaultVars();
+
+Variable var(std::string name);
+
+Variable constVar(std::string name);
+
+Variable globalVar(std::string name);
+
+int stackVars(std::map<std::string, Variable> vars);
 
 void compileLine(
     std::shared_ptr<Context> ctx,
