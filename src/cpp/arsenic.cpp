@@ -91,22 +91,22 @@ void getIncludes(std::string file, std::vector<std::string> &includes)
 }
 
 void writeQMacros(std::ostream &os) {
-    os << "%macro pushaq 0" << std::endl;
-    os << "push rax" << std::endl;
-    os << "push rbx" << std::endl;
-    os << "push rcx" << std::endl;
-    os << "push rdx" << std::endl;
-    os << "push rsi" << std::endl;
-    os << "push rdi" << std::endl;
-    os << "%endmacro" << std::endl;
-    os << "%macro popaq 0" << std::endl;
-    os << "pop rdi" << std::endl;
-    os << "pop rsi" << std::endl;
-    os << "pop rdx" << std::endl;
-    os << "pop rcx" << std::endl;
-    os << "pop rbx" << std::endl;
-    os << "pop rax" << std::endl;
-    os << "%endmacro" << std::endl;
+    os << "%macro pushaq 0\n";
+    os << "push rax\n";
+    os << "push rbx\n";
+    os << "push rcx\n";
+    os << "push rdx\n";
+    os << "push rsi\n";
+    os << "push rdi\n";
+    os << "%endmacro\n";
+    os << "%macro popaq 0\n";
+    os << "pop rdi\n";
+    os << "pop rsi\n";
+    os << "pop rdx\n";
+    os << "pop rcx\n";
+    os << "pop rbx\n";
+    os << "pop rax\n";
+    os << "%endmacro\n";
 }
 
 int main(int argc, char **argv)
@@ -184,9 +184,9 @@ int main(int argc, char **argv)
         if(makeTarget.empty()) makeTarget = std::filesystem::path(outputFile).filename().string();
         makefile << makeTarget << ":";
         for(std::string file: inputFiles) makefile << " " << file;
-        makefile << std::endl;
+        makefile << "\n";
         if(makePhony) {
-            for(std::string file: inputFiles) makefile << file << ":" << std::endl;
+            for(std::string file: inputFiles) makefile << file << ":\n";
         }
         makefile.close();
     }
@@ -202,27 +202,27 @@ int main(int argc, char **argv)
     if(!outputFile.empty()) {
         std::ofstream os(outputFile);
 
-        os << "[bits 64]" << std::endl;
-        os << "DEFAULT REL" << std::endl;
+        os << "[bits 64]\n";
+        os << "DEFAULT REL\n";
 
         writeQMacros(os);
 
-        os << "arsenic:" << std::endl;
+        os << "arsenic:\n";
 
-        os << "pushaq" << std::endl;
-        os << "pushfq" << std::endl;
+        os << "pushaq\n";
+        os << "pushfq\n";
 
-        os << string_format("enter %d, 0", 8 * stackVars(rootCtx.variables)) << std::endl;
+        os << string_format("enter %d, 0\n", 8 * stackVars(rootCtx.variables));
 
-        for (std::string line : compiledCode) os << line << std::endl;
+        for (std::string line : compiledCode) os << line << "\n";
 
-        os << "leave" << std::endl;
+        os << "leave\n";
 
-        os << "popfq" << std::endl;
-        os << "popaq" << std::endl;
-        os << "ret" << std::endl;
+        os << "popfq\n";
+        os << "popaq\n";
+        os << "ret\n";
 
-        for (std::string line : definitions) os << line << std::endl;
+        for (std::string line : definitions) os << line << "\n";
 
         os.close();
     }
