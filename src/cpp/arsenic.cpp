@@ -62,10 +62,12 @@ void preprocessFile(
             definitions.push_back(string_format("%s_v%s equ %s", ctx->name.c_str(), varName.c_str(), varValue.c_str()));
             return;
         }
-        if(std::regex_match(line, match, std::regex("global\\s+([^\\s]+)"))) {
-            std::string varName = match[1];
-            variables.emplace(varName, globalVar(varName));
-            definitions.push_back(string_format("%s_v%s dq 0", ctx->name.c_str(), varName.c_str()));
+        if(std::regex_match(line, match, std::regex("global\\s+(byte|word|dword|qword)\\s+([^\\s=>]+)(?:\\s*[=>].*)"))) {
+            std::string varSize = match[1];
+            std::string varName = match[2];
+            int size = getVarSize(varSize);
+            variables.emplace(varName, globalVar(varName, size));
+            definitions.push_back(string_format("%s_v%s %s 0", ctx->name.c_str(), varName.c_str(), getGlobalSize(size).c_str()));
             return;
         }
     }
@@ -96,12 +98,28 @@ void writeQMacros(std::ostream &os) {
     os << "push rbx\n";
     os << "push rcx\n";
     os << "push rdx\n";
+    os << "push r8\n";
+    os << "push r9\n";
+    os << "push r10\n";
+    os << "push r11\n";
+    os << "push r12\n";
+    os << "push r13\n";
+    os << "push r14\n";
+    os << "push r15\n";
     os << "push rsi\n";
     os << "push rdi\n";
     os << "%endmacro\n";
     os << "%macro popaq 0\n";
     os << "pop rdi\n";
     os << "pop rsi\n";
+    os << "pop r15\n";
+    os << "pop r14\n";
+    os << "pop r13\n";
+    os << "pop r12\n";
+    os << "pop r11\n";
+    os << "pop r10\n";
+    os << "pop r9\n";
+    os << "pop r8\n";
     os << "pop rdx\n";
     os << "pop rcx\n";
     os << "pop rbx\n";
@@ -143,7 +161,7 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    Context rootCtx = Context{"arsenic", defaultVars(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), nullptr, nullptr, 0};
+    Context rootCtx = Context{"arsenic", defaultVars(), std::map<std::string, Struct_>(), std::map<std::string, std::string>(), nullptr, nullptr, 0, 1};
     rootCtx.root = std::make_shared<Context>(rootCtx);
 
     includePath.push_back(".");
@@ -209,17 +227,18 @@ int main(int argc, char **argv)
 
         os << "arsenic:\n";
 
+        os << string_format("enter %d, 0\n", stackSize(rootCtx.variables));
+
         os << "pushaq\n";
         os << "pushfq\n";
 
-        os << string_format("enter %d, 0\n", 8 * stackVars(rootCtx.variables));
-
         for (std::string line : compiledCode) os << line << "\n";
-
-        os << "leave\n";
 
         os << "popfq\n";
         os << "popaq\n";
+
+        os << "leave\n";
+
         os << "ret\n";
 
         for (std::string line : definitions) os << line << "\n";

@@ -13,12 +13,14 @@ struct Context;
 
 struct Variable {
     std::string name;
-    std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getAddr, getValue;
+    std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getAddr;
+    std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int, int)> getValue;
+    int size;
     bool onStack = true;
 };
 
 struct Struct_ {
-    std::map<std::string, int> members;
+    std::map<std::string, std::pair<int, int>> members;
     int size;
 };
 
@@ -28,8 +30,10 @@ struct Context {
     std::map<std::string, Struct_> structs;
     std::map<std::string, std::string> functions;
     std::shared_ptr<Context> parent, root;
-    int depth;
+    int depth, nestedLevel;
 };
+
+int findVariableOffset(std::string var, std::map<std::string, Variable> variables);
 
 void resolve_argument_a(
     std::shared_ptr<Context> ctx,
@@ -86,13 +90,21 @@ std::string allocateLabel(
 
 std::map<std::string, Variable> defaultVars();
 
-Variable var(std::string name);
+Variable var(std::string name, int size);
 
 Variable constVar(std::string name);
 
-Variable globalVar(std::string name);
+Variable globalVar(std::string name, int size);
 
-int stackVars(std::map<std::string, Variable> vars);
+int getVarSize(std::string size);
+
+std::string getGlobalSize(int varSize);
+
+std::string getSizedRegister(std::string reg, int size);
+
+std::string getSizeMask(int size);
+
+int stackSize(std::map<std::string, Variable> vars);
 
 void compileLine(
     std::shared_ptr<Context> ctx,

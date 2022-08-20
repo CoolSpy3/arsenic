@@ -13,6 +13,16 @@ bool reg_match(std::string reg, char match) {
     return std::regex_match(reg, std::regex(string_format("r?%c(l|h|x)", match)));
 }
 
+int findVariableOffset(std::string var, std::map<std::string, Variable> variables) {
+    int offset = 0;
+    for(std::map<std::string, Variable>::iterator it = variables.begin(); it != variables.end(); it++) {
+        if(it->first == var) return offset;
+        offset += it->second.size;
+    }
+    std::cerr << "Error: variable " << var << " not found" << std::endl;
+    exit(1);
+}
+
 #define CHECK_SPECIAL_VARS(name) name == "args" ? ".arg" : name == "return" ? ".ret" : name
 
 void resolve_argument_a(
@@ -28,7 +38,7 @@ void resolve_argument_a(
         std::string structVar = structMatch[2];
         std::string structMember = structMatch[3];
         Struct_ struct_ = findStruct(ctx, structName);
-        int memberOffset = struct_.members.find(structMember)->second;
+        int memberOffset = struct_.members.find(structMember)->second.second;
         resolve_argument_a(ctx, structVar, reg, compiledCode);
         compiledCode.push_back(string_format("add %s, %d", reg.c_str(), memberOffset));
         return;
@@ -43,7 +53,7 @@ void resolve_argument_a(
             exit(1);
         }
     } else {
-        it->second.getAddr(ctx, var, reg, compiledCode, numParents, std::distance(ctx->variables.begin(), it));
+        it->second.getAddr(ctx, var, reg, compiledCode, numParents, findVariableOffset(var, ctx->variables));
     }
 }
 
@@ -61,10 +71,14 @@ void resolve_argument_i(
         std::string structVar = match[2];
         std::string structMember = match[3];
         Struct_ struct_ = findStruct(ctx, structName);
-        int memberOffset = struct_.members.find(structMember)->second;
+        std::map<std::string, std::pair<int, int>>::iterator member = struct_.members.find(structMember);
+        int memberOffset = member->second.second;
         resolve_argument_a(ctx, structVar, reg, compiledCode);
         compiledCode.push_back(string_format("add %s, %d", reg.c_str(), memberOffset));
-        compiledCode.push_back(string_format("mov %s, [%s]", reg.c_str()));
+        compiledCode.push_back(string_format("mov %s, [%s]", getSizedRegister(reg, member->second.first).c_str(), reg.c_str()));
+        if(member->second.first != 8) {
+            compiledCode.push_back(string_format("and %s, %s", reg.c_str(), getSizeMask(member->second.first).c_str()));
+        }
         return;
     }
     if(std::regex_match(var, match, std::regex("faddr\\(\\s*(\\w+)\\s*\\)"))) {
@@ -99,7 +113,10 @@ void resolve_argument_i(
             exit(1);
         }
     } else {
-        it->second.getValue(ctx, var, reg, compiledCode, numParents, std::distance(ctx->variables.begin(), it));
+        it->second.getValue(ctx, var, reg, compiledCode, numParents, findVariableOffset(var, ctx->variables), it->second.size);
+        if(it->second.size != 8) {
+            compiledCode.push_back(string_format("and %s, %s", reg.c_str(), getSizeMask(it->second.size).c_str()));
+        }
     }
 }
 
@@ -410,57 +427,22 @@ std::map<std::string, Variable> preprocessFunction(
 ) {
     std::map<std::string, Variable> variables = defaultVars();
     int posBkp = file.tellg();
+    int functionIndentation = -1;
 
     for(;;) {
         std::unique_ptr<std::string> linePtr = getLine();
         if(!linePtr) break;
         std::string line = *linePtr;
-        if(indentation >= calculateIndentation(line)) break;
         if(trim_copy(line).empty()) continue;
-        if(std::regex_match(line, std::regex("\\s*([^\\s]+)\\s*:"))) {
-            int innerIndentation = calculateIndentation(line);
-            int posBkp2 = file.tellg();
-            while(linePtr && !linePtr->empty() && calculateIndentation(*linePtr) > innerIndentation) {
-                posBkp2 = file.tellg();
-                linePtr = getLine();
-            }
-            file.clear();
-            file.seekg(posBkp2);
-            continue;
-        }
+        if(indentation >= calculateIndentation(line)) break;
+        if(functionIndentation != -1 && functionIndentation < calculateIndentation(line)) continue;
+        functionIndentation = calculateIndentation(line);
         trim(line);
         std::smatch varMatch;
-        if(std::regex_match(line, varMatch, std::regex("([^\\s]+)\\s*(=|<|>)\\s*.+"))) {
-            std::string name = varMatch[1];
-            if(name[0] <= '9') continue;
-            if(name == "return" || name == "args") continue;
-            Context superCtx = *ctx;
-            if(superCtx.parent == nullptr) {
-                variables.emplace(name, var(name));
-                break;
-            } else {
-                while(superCtx.parent) {
-                    if(superCtx.variables.count(name)) break;
-                    if(superCtx.parent == nullptr) {
-                        variables.emplace(name, var(name));
-                        break;
-                    }
-                    superCtx = *superCtx.parent;
-                }
-            }
-        } else if (std::regex_match(line, varMatch, std::regex("\\[[^\\s]+\\]"))) {
-            std::string name = varMatch[1];
-            if(name[0] <= '9') continue;
-            if(name == "return" || name == "args") continue;
-            Context superCtx = *ctx;
-            while(superCtx.parent) {
-                if(superCtx.variables.count(name)) break;
-                if(superCtx.parent == nullptr) {
-                    variables.emplace(name, var(name));
-                    break;
-                }
-                superCtx = *superCtx.parent;
-            }
+        if(std::regex_match(line, varMatch, std::regex("(byte|word|dword|qword)\\s*([^\\s]+)\\s*[=>]\\s*.+"))) {
+            std::string type = varMatch[1];
+            std::string name = varMatch[2];
+            variables.emplace(name, var(name, getVarSize(type)));
         }
     }
 
@@ -479,84 +461,130 @@ std::string allocateLabel(
 }
 
 std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getArgAddr =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset) {
         compiledCode.push_back(string_format("mov %s, rbp", reg.c_str()));
         compiledCode.push_back(string_format("sub %s, %d", reg.c_str(),  8 * (ctx->depth + 2)));
     };
-std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getArgValue =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int, int)> getArgValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset, int size) {
         compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(),  8 * (ctx->depth + 2)));
     };
 std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getRetAddr =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset) {
         compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * ctx->depth));
         compiledCode.push_back(string_format("sub %s, rbp-%d", reg.c_str(), 8 * (ctx->depth + 1 + 1)));
     };
-std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getRetValue =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int, int)> getRetValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset, int size) {
         compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 2 + 1)));
     };
 
 std::map<std::string, Variable> defaultVars() {
     std::map<std::string, Variable> vars;
-    vars.emplace(".arg", Variable{".arg", getArgAddr, getArgValue});
-    vars.emplace(".ret", Variable{".ret", getRetAddr, getRetValue});
+    vars.emplace(".arg", Variable{".arg", getArgAddr, getArgValue, 8});
+    vars.emplace(".ret", Variable{".ret", getRetAddr, getRetValue, 8});
     return vars;
 }
 
 std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getDefaultAddr =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset) {
         if(numParents != 0) {
             compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 1)));
         } else {
             compiledCode.push_back(string_format("mov %s, rbp", reg.c_str()));
         }
-        compiledCode.push_back(string_format("sub %s, %d", reg.c_str(),  8 * (ctx->depth + 2 + pos)));
+        compiledCode.push_back(string_format("sub %s, %d", reg.c_str(),  8 * (ctx->depth + 2) + offset));
     };
-std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getDefaultValue =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int, int)> getDefaultValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset, int size) {
         if(numParents != 0) {
             compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 1)));
-            compiledCode.push_back(string_format("mov %s, [%s-%d]", reg.c_str(), reg.c_str(), 8 * (ctx->depth + 2 + pos)));
+            compiledCode.push_back(string_format("mov %s, [%s-%d]", getSizedRegister(reg.c_str(), size).c_str(), reg.c_str(), 8 * (ctx->depth + 2) + offset));
         } else {
-            compiledCode.push_back(string_format("mov %s, [rbp-%d]", reg.c_str(), 8 * (ctx->depth + 2 + pos)));
+            compiledCode.push_back(string_format("mov %s, [rbp-%d]", getSizedRegister(reg.c_str(), size).c_str(), 8 * (ctx->depth + 2) + offset));
         }
     };
 
-Variable var(std::string name) {
-    return Variable{name, getDefaultAddr, getDefaultValue};
+Variable var(std::string name, int size) {
+    return Variable{name, getDefaultAddr, getDefaultValue, size};
 }
 
 std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getConstAddr =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset) {
         compiledCode.push_back(string_format("mov %s, 0", reg.c_str()));
     };
-std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getConstValue =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int, int)> getConstValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset, int size) {
         compiledCode.push_back(string_format("mov %s, %s_v%s", reg.c_str(), ctx->name.c_str(), var.c_str()));
     };
 
 Variable constVar(std::string name) {
-    return Variable{name, getConstAddr, getConstAddr, false};
+    return Variable{name, getConstAddr, getConstValue, 8, false};
 }
 
 std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getGlobalAddr =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset) {
         compiledCode.push_back(string_format("lea %s, [%s_v%s]", reg.c_str(), ctx->name.c_str(), var.c_str()));
     };
-std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int)> getGlobalValue =
-    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int pos) {
-        compiledCode.push_back(string_format("mov %s, [%s_v%s]", reg.c_str(), ctx->name.c_str(), var.c_str()));
+std::function<void(std::shared_ptr<Context>, std::string, std::string, std::vector<std::string>&, int, int, int)> getGlobalValue =
+    [](std::shared_ptr<Context> ctx, std::string var, std::string reg, std::vector<std::string>& compiledCode, int numParents, int offset, int size) {
+        compiledCode.push_back(string_format("mov %s, [%s_v%s]", getSizedRegister(reg.c_str(), size).c_str(), ctx->name.c_str(), var.c_str()));
     };
 
-Variable globalVar(std::string name) {
-    return Variable{name, getGlobalAddr, getGlobalValue};
+Variable globalVar(std::string name, int size) {
+    return Variable{name, getGlobalAddr, getGlobalValue, size, false};
 }
 
-int stackVars(std::map<std::string, Variable> vars) {
-    int stackVars = 0;
-    for(std::pair<std::string, Variable> var : vars) if(var.second.onStack) stackVars++;
-    return stackVars;
+int getVarSize(std::string varSize) {
+    if(varSize == "byte") return 1;
+    if(varSize == "word") return 2;
+    if(varSize == "dword") return 4;
+    if(varSize == "qword") return 8;
+    std::cerr << "Invalid variable size: " << varSize << std::endl;
+    exit(1);
+}
+
+std::string getGlobalSize(int varSize) {
+    switch(varSize) {
+        case 1: return "db";
+        case 2: return "dw";
+        case 4: return "dd";
+        case 8: return "dq";
+    }
+    std::cerr << "Invalid variable size: " << varSize << std::endl;
+    exit(1);
+}
+
+std::string getSizeMask(int size) {
+    switch(size) {
+        case 1: return "0xff";
+        case 2: return "0xffff";
+        case 4: return "0xffffffff";
+        case 8: return "0xffffffffffffffff";
+    }
+    std::cerr << "Invalid variable size: " << size << std::endl;
+    exit(1);
+}
+
+int stackSize(std::map<std::string, Variable> vars) {
+    int stackSize = 0;
+    for(std::pair<std::string, Variable> var : vars) if(var.second.onStack) stackSize += var.second.size;
+    return stackSize;
+}
+
+std::string getSizedRegister(std::string reg, int size) {
+    if(size == 8) return reg;
+    if(std::regex_match(reg, std::regex("r[0-9]{1,2}"))) {
+        if(size == 1) return reg + "b";
+        if(size == 2) return reg + "w";
+        if(size == 4) return reg + "d";
+    }
+    reg = reg.substr(1, reg.size() - 1);
+    if(size == 2) return reg;
+    if(size == 4) return "e" + reg;
+    if(size == 1) { if(reg[1] == 'x') return reg[0] + "l"; else return reg + "l"; }
+    std::cerr << "Cannot convert register " << reg << " to size " << size << std::endl;
+    exit(1);
 }
 
 void compileLine(
@@ -569,7 +597,7 @@ void compileLine(
 ) {
     int indentation = calculateIndentation(line);
     trim(line);
-    if(line.empty()) return;
+    if(line.empty() || line == "pass") return;
     std::smatch match;
     if(std::regex_match(line, match, std::regex("asm\\s*(?:([^\\s]+)\\s*):"))) {
         std::string functionName, functionLabel;
@@ -604,7 +632,7 @@ void compileLine(
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
-    if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*=\\s*(.+)"))) {
+    if(std::regex_match(line, match, std::regex("(?:global)?\\s*(?:byte|word|dword|qword)?\\s*([^\\s]+)\\s*=\\s*(.+)"))) {
         compiledCode.push_back("push rax");
         compiledCode.push_back("push rbx");
 
@@ -617,12 +645,16 @@ void compileLine(
         compiledCode.push_back("pop rax");
 
         if(match[1] == "return") {
-            compiledCode.push_back("leave");
+            if(ctx->parent == nullptr) {
+                compiledCode.push_back("popfq");
+                compiledCode.push_back("popaq");
+            }
+            for(int i = 0; i < ctx->nestedLevel; i++) compiledCode.push_back("leave");
             compiledCode.push_back("ret");
         }
         return;
     }
-    if(std::regex_match(line, match, std::regex("([^\\s]+)\\s*>\\s*(.+)"))) {
+    if(std::regex_match(line, match, std::regex("(?:global)?\\s*(?:byte|word|dword|qword)?\\s*([^\\s]+)\\s*>\\s*(.+)"))) {
         compiledCode.push_back("push rax");
         compiledCode.push_back("push rbx");
 
@@ -635,7 +667,11 @@ void compileLine(
         compiledCode.push_back("pop rax");
 
         if(match[1] == "return") {
-            compiledCode.push_back("leave");
+            if(ctx->parent == nullptr) {
+                compiledCode.push_back("popfq");
+                compiledCode.push_back("popaq");
+            }
+            for(int i = 0; i < ctx->nestedLevel; i++) compiledCode.push_back("leave");
             compiledCode.push_back("ret");
         }
         return;
@@ -662,11 +698,11 @@ void compileLine(
 
         std::map<std::string, Variable> functionVars = preprocessFunction(ctx, indentation, getLine, file);
 
-        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root, ctx->depth + 1});
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{functionLabel, functionVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root, ctx->depth + 1, 1});
 
         compiledCode.push_back(string_format("jmp %s_e", functionLabel.c_str()));
         compiledCode.push_back(string_format("%s:", functionLabel.c_str()));
-        compiledCode.push_back(string_format("enter %d, %d", 8 * stackVars(functionVars), ctx->depth));
+        compiledCode.push_back(string_format("enter %d, %d", stackSize(functionVars), ctx->depth));
         compiledCode.push_back(string_format("mov [rbp-%d], ebx", 8 * (ctx->depth + 2)));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
@@ -686,7 +722,11 @@ void compileLine(
     }
 
     if(line == "return") {
-        compiledCode.push_back("leave");
+        if(ctx->parent == nullptr) {
+            compiledCode.push_back("popfq");
+            compiledCode.push_back("popaq");
+        }
+        for(int i = 0; i < ctx->nestedLevel; i++) compiledCode.push_back("leave");
         compiledCode.push_back("ret");
         return;
     }
@@ -701,31 +741,45 @@ void compileLine(
 
     if(std::regex_match(line, match, std::regex("if\\s+([^\\s].+)\\s*:"))) {
         std::string ifLabel = allocateLabel(string_format("%s_cif", ctx->name.c_str()), ctx);
+
+        std::map<std::string, Variable> ifVars = preprocessFunction(ctx, indentation, getLine, file);
+
+        std::shared_ptr<Context> ifCtx = std::make_shared<Context>(Context{ifLabel, ifVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root, ctx->depth + 1, ctx->nestedLevel + 1});
+
         compiledCode.push_back(string_format("%s:", ifLabel.c_str()));
         compiledCode.push_back("push rax");
         resolve_argument(ctx, match[1], "rax", compiledCode);
         compiledCode.push_back("cmp rax, 0");
         compiledCode.push_back("pop rax");
         compiledCode.push_back(string_format("jz %s", string_format("%s_cel", ifLabel.c_str())));
+        compiledCode.push_back(string_format("enter %d, %d", stackSize(ifVars), ctx->depth));
         for(;;) {
             std::unique_ptr<std::string> linePtr = getLine();
             if(!linePtr) break;
             line = *linePtr.get();
             if(trim_copy(line).empty()) continue;
             if(indentation >= calculateIndentation(line)) break;
-            compileLine(ctx, line, getLine, compiledCode, definitions, file);
+            compileLine(ifCtx, line, getLine, compiledCode, definitions, file);
         }
+        compiledCode.push_back("leave");
         if(std::regex_match(line, std::regex("else\\s*:"))) {
             compiledCode.push_back(string_format("jmp %s_e:", ifLabel.c_str()));
             compiledCode.push_back(string_format("%s_cel:", ifLabel.c_str()));
+
+            std::map<std::string, Variable> elseVars = preprocessFunction(ctx, indentation, getLine, file);
+
+            std::shared_ptr<Context> elseCtx = std::make_shared<Context>(Context{ifLabel, ifVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root, ctx->depth + 1, ctx->nestedLevel + 1});
+
+            compiledCode.push_back(string_format("enter %d, %d", stackSize(elseVars), ctx->depth));
             for(;;) {
                 std::unique_ptr<std::string> linePtr = getLine();
                 if(!linePtr) break;
                 line = *linePtr.get();
                 if(trim_copy(line).empty()) continue;
                 if(indentation >= calculateIndentation(line)) break;
-                compileLine(ctx, line, getLine, compiledCode, definitions, file);
+                compileLine(elseCtx, line, getLine, compiledCode, definitions, file);
             }
+            compiledCode.push_back("leave");
         } else compiledCode.push_back(string_format("%s_cel:", ifLabel.c_str()));
         compiledCode.push_back(string_format("%s_e:", ifLabel.c_str()));
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
@@ -734,6 +788,12 @@ void compileLine(
 
     if(std::regex_match(line, match, std::regex("while\\s+([^\\s].+)\\s*:"))) {
         std::string whileLabel = allocateLabel(string_format("%s_cwhile", ctx->name.c_str()), ctx);
+
+        std::map<std::string, Variable> whileVars = preprocessFunction(ctx, indentation, getLine, file);
+
+        std::shared_ptr<Context> nCtx = std::make_shared<Context>(Context{whileLabel, whileVars, std::map<std::string, Struct_>(), std::map<std::string, std::string>(), ctx, ctx->root, ctx->depth + 1, ctx->nestedLevel + 1});
+
+        compiledCode.push_back(string_format("enter %d, %d", stackSize(whileVars), ctx->depth));
         compiledCode.push_back(string_format("%s:", whileLabel.c_str()));
         compiledCode.push_back("push rax");
         resolve_argument(ctx, match[1], "rax", compiledCode);
@@ -746,10 +806,11 @@ void compileLine(
             line = *linePtr.get();
             if(trim_copy(line).empty()) continue;
             if(indentation >= calculateIndentation(line)) break;
-            compileLine(ctx, line, getLine, compiledCode, definitions, file);
+            compileLine(nCtx, line, getLine, compiledCode, definitions, file);
             compiledCode.push_back(string_format("jmp %s", whileLabel.c_str()));
         }
         compiledCode.push_back(string_format("%s_e:", whileLabel.c_str()));
+        compiledCode.push_back("leave");
         if(file.good()) compileLine(ctx, line, getLine, compiledCode, definitions, file);
         return;
     }
@@ -812,19 +873,18 @@ void compileLine(
 
         int size = 0;
 
-        for(std::size_t i = 2; i < tokens.size(); i++) {
-            std::string name = tokens[i];
+        for(std::size_t i = 2; i < tokens.size(); i += 2) {
+            std::string type = tokens[i];
+            std::string name = tokens[i+1];
 
-            if(name == "struct") {
-                i++;
-                structName = tokens[i];
-                i++;
-                name = tokens[i];
-                struct_.members.emplace(name, size);
-                size += findStruct(ctx, structName).size;
+            if(type == "struct") {
+                Struct_ innerStruct = findStruct(ctx, name);
+                struct_.members.emplace(name, std::pair<int, int>(innerStruct.size, size));
+                size += innerStruct.size;
             } else {
-                struct_.members.emplace(name, size);
-                size += 4;
+                int varSize = getVarSize(type);
+                struct_.members.emplace(name, std::pair<int, int>(varSize, size));
+                size += varSize;
             }
         }
 
