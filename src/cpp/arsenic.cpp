@@ -133,6 +133,7 @@ int main(int argc, char **argv)
     std::string makefilePath;
     bool makePhony = false;
     std::string makeTarget;
+    std::string symbolFile;
     std::string outputFile;
     std::vector<std::string> inputFiles;
     try
@@ -143,6 +144,7 @@ int main(int argc, char **argv)
         TCLAP::ValueArg<std::string> makefileArg("M", "makefile", "Path to a file where the required dependencies for this file will be stored", false, "", "path", cmd);
         TCLAP::SwitchArg makePhonyArg("P", "phony", "If present with the -MF flag, the compiler will add phony tasks to the dependencies file for all required files", cmd);
         TCLAP::ValueArg<std::string> makeTargetArg("T", "target", "Changes the make dependency target. If unspecified, it will be the name of the output file", false, "", "name", cmd);
+        TCLAP::ValueArg<std::string> symbolOutputArg("S", "symbols", "Specifies an output file to write symbol locations", false, "", "path", cmd);
         TCLAP::ValueArg<std::string> outputArg("o", "outfile", "The path to the output file", false, "", "path", cmd);
         TCLAP::UnlabeledMultiArg<std::string> inputArg("input", "The input file(s)", true, "path", cmd);
 
@@ -152,6 +154,7 @@ int main(int argc, char **argv)
         makefilePath = makefileArg.getValue();
         makePhony = makePhonyArg.getValue();
         makeTarget = makeTargetArg.getValue();
+        symbolFile = symbolOutputArg.getValue();
         outputFile = outputArg.getValue();
         inputFiles = inputArg.getValue();
     }
@@ -219,6 +222,8 @@ int main(int argc, char **argv)
 
     if(!outputFile.empty()) {
         std::ofstream os(outputFile);
+
+        if(!symbolFile.empty()) os << string_format("[map symbols %s]\n", symbolFile.c_str());
 
         os << "[bits 64]\n";
         os << "DEFAULT REL\n";
