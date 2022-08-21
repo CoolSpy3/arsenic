@@ -599,7 +599,7 @@ void compileLine(
     trim(line);
     if(line.empty() || line == "pass") return;
     std::smatch match;
-    if(std::regex_match(line, match, std::regex("asm\\s*(?:([^\\s]+)\\s*):"))) {
+    if(std::regex_match(line, match, std::regex("asm\\s*(?:([^\\s]+)?\\s*):"))) {
         std::string functionName, functionLabel;
         if(match.size() > 1) {
             functionName = match[1];
